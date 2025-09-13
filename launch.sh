@@ -70,9 +70,14 @@ check_dependencies() {
         fi
     done
 
-    # Check Python packages
-    if ! python3 -c "import rich" &> /dev/null 2>&1; then
-        missing_deps+=("python3-rich")
+    # Check Python packages in venv
+    if [ -f "venv/bin/activate" ]; then
+        source venv/bin/activate
+        if ! python3 -c "import rich" &> /dev/null 2>&1; then
+            missing_deps+=("python3-rich (in venv)")
+        fi
+    else
+        missing_deps+=("venv not created")
     fi
 
     if [ ${#missing_deps[@]} -ne 0 ]; then
@@ -126,10 +131,18 @@ show_menu() {
     echo ""
 }
 
+# Activate venv if it exists
+activate_venv() {
+    if [ -f "venv/bin/activate" ]; then
+        source venv/bin/activate
+    fi
+}
+
 # Launch wizard
 launch_wizard() {
     echo -e "${CYAN}🚀 Launching First Success Wizard...${NC}"
     echo ""
+    activate_venv
     python3 -m quickstart.wizard
 }
 
@@ -137,6 +150,7 @@ launch_wizard() {
 launch_scanner() {
     echo -e "${CYAN}🔍 Starting network scanner...${NC}"
     echo ""
+    activate_venv
     python3 cli.py scan
 }
 
@@ -149,6 +163,7 @@ launch_capture() {
     read -p "Enter target BSSID (MAC address): " bssid
     read -p "Enter channel number: " channel
 
+    activate_venv
     python3 cli.py capture --bssid "$bssid" --channel "$channel"
 }
 
@@ -156,6 +171,7 @@ launch_capture() {
 launch_advanced() {
     echo -e "${CYAN}⚙️  Launching advanced mode...${NC}"
     echo ""
+    activate_venv
     python3 cli.py --advanced
 }
 
