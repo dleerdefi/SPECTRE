@@ -5,7 +5,9 @@ Core functionality for WiFi penetration testing.
 """
 
 from .adapters import AdapterManager
-from .scanner import NetworkScanner
-from .capture import HandshakeCapture
 
-__all__ = ["AdapterManager", "NetworkScanner", "HandshakeCapture"]
+# These will be implemented in future releases
+# from .scanner import NetworkScanner
+# from .capture import HandshakeCapture
+
+__all__ = ["AdapterManager"]
