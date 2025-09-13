@@ -409,8 +409,16 @@ Always use your skills ethically and legally.
 
 def main():
     """Entry point for the wizard"""
-    wizard = FirstSuccessWizard()
-    wizard.run()
+    # Try to import and use real wizard if components are available
+    try:
+        from .real_wizard import RealFirstSuccessWizard
+        wizard = RealFirstSuccessWizard()
+        wizard.run()
+    except ImportError:
+        # Fallback to simulation if components not available
+        console.print("[yellow]Note: Running in simulation mode[/yellow]")
+        wizard = FirstSuccessWizard()
+        wizard.run()
 
 
 if __name__ == "__main__":

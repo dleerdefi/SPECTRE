@@ -67,15 +67,16 @@ sudo apt install -y \
 # WiFi tools
 sudo apt install -y \
     aircrack-ng \
-    airodump-ng \
-    aireplay-ng \
     hashcat \
     john \
     reaver \
     bully \
     macchanger \
     wireless-tools \
-    net-tools
+    net-tools \
+    tshark \
+    hcxtools \
+    hcxdumptool
 
 # Additional utilities
 sudo apt install -y \
@@ -140,13 +141,19 @@ if [ ! -f "wordlists/rockyou.txt" ]; then
     fi
 fi
 
-# Create launcher script
-cat > launch.sh << 'LAUNCHER'
+# Make launch.sh executable if it exists
+if [ -f "launch.sh" ]; then
+    chmod +x launch.sh
+    echo -e "${GREEN}[✓] launch.sh is ready${NC}"
+else
+    echo -e "${YELLOW}[!] launch.sh not found - creating basic launcher${NC}"
+    cat > launch.sh << 'LAUNCHER'
 #!/bin/bash
 source venv/bin/activate
 python3 -m quickstart.wizard
 LAUNCHER
-chmod +x launch.sh
+    chmod +x launch.sh
+fi
 
 echo ""
 echo -e "${GREEN}╔══════════════════════════════════════════════════════════╗${NC}"
