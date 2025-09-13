@@ -152,10 +152,85 @@ def monitor(interface):
 @cli.command()
 @click.option('--target', '-t', help='Target network SSID')
 @click.option('--interface', '-i', help='Interface to use for scanning')
-def scan(target, interface):
+@click.option('--duration', '-d', type=int, default=30, help='Scan duration in seconds')
+@click.option('--channels', '-c', help='Comma-separated list of channels')
+def scan(target, interface, duration, channels):
     """Scan for WiFi networks"""
-    console.print("[cyan]Network scanning not yet implemented[/cyan]")
-    console.print("This will scan for networks and display them in a table")
+    import asyncio
+    from services.scanner_service import ScannerService, ScanConfig, ScanMode
+
+    console.print("[bold cyan]Starting network scan...[/bold cyan]\n")
+
+    # Parse channels if provided
+    channel_list = None
+    if channels:
+        channel_list = [int(c.strip()) for c in channels.split(',')]
+
+    # Create scanner service
+    service = ScannerService()
+
+    # Configure scan
+    config = ScanConfig(
+        mode=ScanMode.TARGETED if target else ScanMode.DISCOVERY,
+        target_ssid=target,
+        channels=channel_list,
+        duration=duration
+    )
+
+    # Run scan
+    async def run_scan():
+        if not await service.initialize():
+            console.print("[red]Failed to initialize scanner[/red]")
+            return
+
+        console.print(f"[green]Scanning for {duration} seconds...[/green]")
+        console.print(f"[dim]Press Ctrl+C to stop early[/dim]\n")
+
+        if await service.start_scan(config):
+            # Show progress
+            with console.status("[cyan]Scanning...[/cyan]"):
+                await asyncio.sleep(duration)
+
+            results = await service.stop_scan()
+
+            # Display results in table
+            if results.networks:
+                table = Table(title=f"Found {len(results.networks)} Networks", show_header=True, header_style="bold cyan")
+                table.add_column("SSID", style="yellow")
+                table.add_column("BSSID", style="dim")
+                table.add_column("Channel")
+                table.add_column("Security")
+                table.add_column("Signal", style="green")
+                table.add_column("WPS")
+
+                for network in sorted(results.networks, key=lambda n: n.signal_strength, reverse=True)[:20]:
+                    wps_status = "✓" if network.wps_enabled else ""
+                    table.add_row(
+                        network.ssid[:25] if len(network.ssid) > 25 else network.ssid,
+                        network.bssid,
+                        str(network.channel),
+                        network.encryption.value,
+                        f"{network.signal_strength} dBm",
+                        wps_status
+                    )
+
+                console.print(table)
+
+                # Show statistics
+                console.print(f"\n[cyan]Scan Statistics:[/cyan]")
+                console.print(f"  Total Networks: {len(results.networks)}")
+                console.print(f"  Total Clients: {len(results.clients)}")
+                console.print(f"  Open Networks: {len([n for n in results.networks if n.encryption.value == 'Open'])}")
+                console.print(f"  WPS Enabled: {len([n for n in results.networks if n.wps_enabled])}")
+            else:
+                console.print("[yellow]No networks found[/yellow]")
+        else:
+            console.print("[red]Failed to start scan[/red]")
+
+    try:
+        asyncio.run(run_scan())
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Scan interrupted by user[/yellow]")
 
 
 @cli.command()

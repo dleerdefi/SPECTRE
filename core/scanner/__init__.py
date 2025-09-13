@@ -1,16 +1,31 @@
 """
-Network Scanner Module (Coming Soon)
+Network Scanner Module
 
-This module will handle network discovery and monitoring.
+Provides network discovery and monitoring capabilities using airodump-ng.
 """
 
-class NetworkScanner:
-    """Placeholder for network scanner functionality"""
-    
-    def __init__(self):
-        pass
-    
-    def scan(self):
-        raise NotImplementedError("Network scanning coming in next release")
+from .models import (
+    Network,
+    Client,
+    Handshake,
+    ScanResult,
+    EncryptionType,
+    WiFiBand
+)
+from .parser import AirodumpParser
+from .network_scanner import NetworkScanner, ChannelStrategy
 
-__all__ = ["NetworkScanner"]
+__all__ = [
+    # Models
+    "Network",
+    "Client",
+    "Handshake",
+    "ScanResult",
+    "EncryptionType",
+    "WiFiBand",
+    # Parser
+    "AirodumpParser",
+    # Scanner
+    "NetworkScanner",
+    "ChannelStrategy"
+]
