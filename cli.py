@@ -235,12 +235,119 @@ def scan(target, interface, duration, channels):
 
 @cli.command()
 @click.option('--bssid', '-b', required=True, help='Target BSSID')
-@click.option('--channel', '-c', type=int, help='Channel number')
+@click.option('--channel', '-c', type=int, required=True, help='Channel number')
 @click.option('--interface', '-i', help='Interface to use')
-def capture(bssid, channel, interface):
+@click.option('--timeout', '-t', type=int, default=300, help='Capture timeout in seconds')
+@click.option('--deauth', '-d', type=int, default=5, help='Number of deauth bursts')
+def capture(bssid, channel, interface, timeout, deauth):
     """Capture WPA/WPA2 handshake"""
-    console.print("[cyan]Handshake capture not yet implemented[/cyan]")
-    console.print(f"This will capture handshake from {bssid}")
+    from core.capture import CaptureManager, CaptureConfig, DeauthStrategy
+    from core.capture import HandshakeValidator
+    from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
+
+    console.print(Panel(
+        f"[bold cyan]Handshake Capture[/bold cyan]\n\n"
+        f"Target: [yellow]{bssid}[/yellow]\n"
+        f"Channel: [yellow]{channel}[/yellow]\n"
+        f"Timeout: [yellow]{timeout}s[/yellow]",
+        border_style="cyan"
+    ))
+
+    # Get interface from adapter manager if not specified
+    if not interface:
+        manager = AdapterManager()
+        manager.discover_adapters()
+        optimal = manager.get_optimal_setup()
+
+        if optimal["monitor"]:
+            interface = optimal["monitor"].interface
+            console.print(f"[green]Using monitor interface: {interface}[/green]")
+        else:
+            console.print("[red]No suitable interface found![/red]")
+            sys.exit(1)
+
+    # Configure capture
+    config = CaptureConfig(
+        target_bssid=bssid,
+        target_channel=channel,
+        capture_timeout=timeout,
+        deauth_count=deauth,
+        deauth_interval=10,
+        min_quality_score=50.0
+    )
+
+    # Start capture
+    capture_manager = CaptureManager(interface)
+
+    console.print("\n[cyan]Starting capture...[/cyan]")
+    console.print("[dim]Press Ctrl+C to stop[/dim]\n")
+
+    # Show progress
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        TimeElapsedColumn(),
+        console=console
+    ) as progress:
+        task = progress.add_task("Capturing handshake...", total=None)
+
+        # Update status callback
+        def update_status(status):
+            descriptions = {
+                "capturing": "Monitoring for handshake...",
+                "deauthing": "Sending deauth packets...",
+                "validating": "Validating captured data...",
+                "success": "[green]Handshake captured![/green]",
+                "failed": "[red]Capture failed[/red]",
+                "timeout": "[yellow]Capture timeout[/yellow]"
+            }
+            progress.update(task, description=descriptions.get(status.value, status.value))
+
+        capture_manager.on_status_change = update_status
+
+        # Run capture
+        try:
+            success, handshake = capture_manager.capture_handshake(config)
+        except KeyboardInterrupt:
+            console.print("\n[yellow]Capture interrupted by user[/yellow]")
+            capture_manager.stop()
+            sys.exit(0)
+
+    # Display results
+    if success and handshake:
+        console.print("\n[bold green]✅ Handshake Captured Successfully![/bold green]\n")
+
+        table = Table(show_header=False, box=None)
+        table.add_column("Property", style="cyan")
+        table.add_column("Value", style="yellow")
+
+        table.add_row("BSSID", handshake.bssid)
+        table.add_row("SSID", handshake.ssid)
+        table.add_row("Client", handshake.client_mac)
+        table.add_row("Quality Score", f"{handshake.quality_score:.1f}/100")
+        table.add_row("EAPOL Packets", str(handshake.eapol_packets))
+        table.add_row("Capture Time", f"{handshake.time_to_capture:.1f}s")
+        table.add_row("File", handshake.pcap_file)
+        table.add_row("File Size", f"{handshake.file_size / 1024:.1f} KB")
+
+        console.print(table)
+
+        # Validate with advanced validator
+        console.print("\n[cyan]Validating handshake...[/cyan]")
+        validator = HandshakeValidator()
+        validation = validator.validate_pcap(handshake.pcap_file)
+
+        if validation.is_valid:
+            console.print(f"[green]✓ Valid {validation.handshake_type.value} handshake[/green]")
+            for msg in validation.validation_messages:
+                console.print(f"  • {msg}")
+        else:
+            console.print("[red]✗ Invalid handshake[/red]")
+            for msg in validation.validation_messages:
+                console.print(f"  • {msg}")
+    else:
+        console.print("\n[red]❌ Handshake capture failed[/red]")
+        console.print("Try increasing timeout or moving closer to the target")
 
 
 @cli.command()

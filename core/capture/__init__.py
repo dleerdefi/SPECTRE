@@ -1,16 +1,24 @@
 """
-Handshake Capture Module (Coming Soon)
+Handshake Capture Module
 
-This module will handle WPA/WPA2 handshake capture.
+Provides WPA/WPA2 handshake capture, validation, and processing capabilities.
 """
 
-class HandshakeCapture:
-    """Placeholder for handshake capture functionality"""
-    
-    def __init__(self):
-        pass
-    
-    def capture(self):
-        raise NotImplementedError("Handshake capture coming in next release")
+from .capture_manager import CaptureManager, CaptureConfig, CaptureStatus
+from .deauth import DeauthController, DeauthConfig, DeauthStrategy
+from .validator import HandshakeValidator, ValidationResult, HandshakeType
 
-__all__ = ["HandshakeCapture"]
+__all__ = [
+    # Capture Manager
+    "CaptureManager",
+    "CaptureConfig",
+    "CaptureStatus",
+    # Deauth Controller
+    "DeauthController",
+    "DeauthConfig",
+    "DeauthStrategy",
+    # Validator
+    "HandshakeValidator",
+    "ValidationResult",
+    "HandshakeType"
+]
