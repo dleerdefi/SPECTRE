@@ -12,11 +12,9 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
 
-from core.scanner import (
-    Network, Client, Handshake, ScanResult,
-    EncryptionType, WiFiBand,
-    AirodumpParser, NetworkScanner
-)
+from wifi_launchpad.domain.capture import Handshake
+from wifi_launchpad.domain.survey import Client, EncryptionType, Network, ScanResult, WiFiBand
+from wifi_launchpad.providers.native.scanner import AirodumpParser, NetworkScanner
 
 
 class TestNetworkModel(unittest.TestCase):
@@ -250,6 +248,39 @@ Station MAC, First time seen, Last time seen, Power, # packets, BSSID, Probed ES
         for mac in invalid_macs:
             self.assertFalse(self.parser._is_valid_mac(mac), f"{mac} should be invalid")
 
+    def test_filters_invalid_noise_rows(self):
+        """Test dropping bogus network and client rows with invalid signal data."""
+
+        network_row = [
+            "78:28:CA:9F:94:93",
+            "2024-01-15 10:00:00",
+            "2024-01-15 10:05:00",
+            "11",
+            "54",
+            "WPA",
+            "",
+            "",
+            "-1",
+            "0",
+            "0",
+            "0.0.0.0",
+            "0",
+            "",
+            "",
+        ]
+        client_row = [
+            "10:33:BF:6C:86:3F",
+            "2024-01-15 10:00:00",
+            "2024-01-15 10:05:00",
+            "-1",
+            "2",
+            "10:33:BF:6C:86:3F",
+            "",
+        ]
+
+        self.assertIsNone(self.parser._parse_network_row(network_row))
+        self.assertIsNone(self.parser._parse_client_row(client_row))
+
 
 class TestScanResult(unittest.TestCase):
     """Test ScanResult container"""
@@ -322,6 +353,23 @@ class TestNetworkScanner(unittest.TestCase):
         self.assertEqual(scanner.interface, "wlan0mon")
         self.assertIsNotNone(scanner.parser)
         self.assertFalse(scanner.is_scanning)
+
+    @patch('subprocess.run')
+    @patch('subprocess.Popen')
+    def test_scanner_passes_requested_channels_to_airodump(self, mock_popen, mock_run):
+        """Test explicit scan channels are passed through to airodump-ng."""
+
+        mock_run.return_value = MagicMock(returncode=0)
+        mock_popen.return_value = MagicMock()
+        scanner = NetworkScanner("wlan0mon")
+
+        started = scanner.start_scan(channels=[3, 4, 5], write_interval=2)
+
+        self.assertTrue(started)
+        cmd = mock_popen.call_args.args[0]
+        self.assertIn("--channel", cmd)
+        self.assertIn("3,4,5", cmd)
+        scanner.is_scanning = False
 
     @patch('subprocess.run')
     def test_set_channel(self, mock_run):

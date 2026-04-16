@@ -1,17 +1,24 @@
 # Local configuration with sensitive data
 CLAUDE.md
+.claude/
+.codex
 .env
 .env.local
 *.env
 
 # Captures and sensitive data
 captures/
+cases/
+exports/
 *.cap
 *.pcap
 *.pcapng
+*.22000
 *.hccapx
 *.hccap
 *.pmkid
+*.kismet
+*.bpf
 handshakes/
 
 # Logs
@@ -56,6 +63,7 @@ env/
 # Testing
 .coverage
 .pytest_cache/
+.ruff_cache/
 htmlcov/
 
 # Temporary files
@@ -72,3 +80,6 @@ temp/
 # Wordlists (can be large)
 wordlists/rockyou.txt
 wordlists/seclists/
+
+# Development documentation
+docs/development

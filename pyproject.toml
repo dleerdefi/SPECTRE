@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wifi-launchpad"
+version = "0.1.0"
+description = "WiFi-first operator toolkit for authorized wireless assessment."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "WiFi Launchpad Team" }]
+dependencies = [
+  "click==8.1.7",
+  "python-dotenv>=1.0.0",
+  "requests>=2.31.0",
+  "rich==13.7.0",
+  "scapy==2.5.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest==8.3.5",
+  "ruff==0.1.8",
+]
+
+[project.scripts]
+spectre = "wifi_launchpad.cli.main:main"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["wifi_launchpad*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]

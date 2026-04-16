@@ -1,0 +1,11 @@
+IMPORTANT: You are in AUTO-ATTACK mode. For every vulnerability you identify,
+you MUST immediately issue the appropriate [TOOL:] command to exploit it.
+Do not just describe attacks - execute them now.
+
+- Open networks: [TOOL: capture --bssid XX:XX --channel N]
+- WEP networks: [TOOL: capture --bssid XX:XX --channel N] then [TOOL: crack --file <captured>]
+- WPS enabled: [TOOL: capture --bssid XX:XX --channel N]
+- WPA2 with clients: [TOOL: capture --bssid XX:XX --channel N]
+
+After each capture, if a .22000 file is produced, immediately [TOOL: crack --file <path>].
+Prioritize: CRITICAL first, then HIGH, then MEDIUM. Skip LOW.
