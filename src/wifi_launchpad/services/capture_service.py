@@ -182,6 +182,7 @@ class CaptureService:
         bssid: Optional[str] = None,
         scan_duration: int = 60,
         capture_timeout: int = 300,
+        no_fallback: bool = False,
     ) -> Tuple[bool, Optional[Dict]]:
         """Find a specific target by SSID or BSSID before capturing."""
 
@@ -218,6 +219,10 @@ class CaptureService:
         auto_selected = False
         if not target_found:
             self.scan_results = self.scanner.stop_scan()
+            if no_fallback:
+                logger.info("Target %s not found (no_fallback=True)", requested_target)
+                self.state = WorkflowState.FAILED
+                return False, None
             target_found = select_best_target(self.scan_results)
             if not target_found:
                 logger.error("Target not found and no suitable fallback target is available: %s", requested_target)

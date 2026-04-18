@@ -82,7 +82,7 @@ class KismetRestClient:
     def __init__(
         self,
         base_url: str = "http://localhost:2501",
-        auth: Tuple[str, str] = ("launchpad", "launchpad"),
+        auth: Tuple[str, str] = ("spectre", "spectre"),
     ) -> None:
         self.base_url = base_url.rstrip("/")
         creds = base64.b64encode(f"{auth[0]}:{auth[1]}".encode()).decode()

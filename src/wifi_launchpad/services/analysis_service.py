@@ -241,7 +241,7 @@ class AnalysisService(AttackToolsMixin):
             if not await service.initialize():
                 return "[!] Capture failed: adapter not in monitor mode. Your syntax was correct — do NOT change formats. Try another target."
             print(f"    Capture running — waiting for handshake...")
-            success, info = await service.targeted_capture(bssid=bssid)
+            success, info = await service.targeted_capture(bssid=bssid, no_fallback=True)
             if success and info:
                 return f"[+] Handshake captured: {info}"
             return f"[-] No handshake for {bssid}. Target may be out of range or have no clients. Your syntax was correct — do NOT retry with different formats. Try another target."

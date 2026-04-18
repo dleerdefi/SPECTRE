@@ -2,7 +2,11 @@
 
 **S**pecial **P**urpose **E**lectronic **C**ounter-intelligence & **T**actical **R**econ **E**ngine
 
-Wireless tactical assessment toolkit for authorized pentesting on Kali Linux. Multi-tool surveys, automated attack campaigns with WPS escalation, AI-powered vulnerability analysis with evidence-gating, TimescaleDB persistence, and beginner-friendly onboarding — all in one CLI.
+Wireless tactical assessment toolkit for authorized pentesting on Kali Linux. Multi-tool surveys, automated attack campaigns, AI-powered vulnerability analysis with evidence-gating, TimescaleDB persistence, and beginner-friendly onboarding — all in one CLI.
+
+<p align="center">
+  <img src="screenshots/SPECTRE - Entry Portal.png" alt="SPECTRE TUI" width="700"/>
+</p>
 
 ## Features
 
@@ -11,9 +15,9 @@ Wireless tactical assessment toolkit for authorized pentesting on Kali Linux. Mu
 - **5-step attack chain** — PMKID, deauth (3 strategies), pixie dust WPS with intelligent target scoring
 - **Handshake validation** — EAPOL pair verified via hcxpcapngtool before declaring capture success
 - **User approval gates** — GPU cracking and long-running WPS brute force require explicit approval
-- **AI analysis** (optional) — evidence-gated LLM assessment with confidence levels and self-review
-- **Correction tracking** — paste-based import of external LLM reviews, corrections persist to DB
-- **TimescaleDB persistence** — time-series storage with MAC hashing, retention policies, and compression
+- **AI analysis** (optional) — Uncensored Local LLM assessment with self-review
+- **Correction tracking** — Easy import of external LLM evaluations, corrections persist to DB
+- **TimescaleDB** — time-series storage with MAC hashing, retention policies, and compression
 - **Capture orchestration** — PMKID and deauth-based handshake capture with auto-targeting
 - **Cracking** — hashcat integration for WPA/WPA2 (mode 22000) with hardware-tuned profiles
 - **Case management** — store evidence artifacts and generate reports
@@ -145,6 +149,12 @@ sudo $(which spectre) survey --duration 30
 | `crack` | Crack WPA/WPA2 hashes with hashcat | No |
 | `analyze` | AI-powered vulnerability analysis (optional) | No |
 
+Cracking supports local hashcat or remote GPU servers via SSH:
+
+<p align="center">
+  <img src="screenshots/SPECTRE - Crack.png" alt="Remote GPU cracking via SSH" width="700"/>
+</p>
+
 ### Casework
 
 | Command | Description |
@@ -186,6 +196,14 @@ When `--provider auto` (default), Kismet is preferred if installed. Falls back t
 
 Fully automated attack chain with multi-tool survey and intelligent escalation.
 
+<p align="center">
+  <img src="screenshots/SPECTRE - Survey Summary.png" alt="Survey summary with target priorities" width="700"/>
+</p>
+
+<p align="center">
+  <img src="screenshots/SPECTRE - Client AP Map.png" alt="Client-AP association map with vendor identification" width="700"/>
+</p>
+
 **Survey pipeline** (with `--provider auto`):
 1. Kismet passive recon (device fingerprinting, protocol classification)
 2. wash WPS scan (detect WPS-enabled APs, lock status)
@@ -221,6 +239,10 @@ sudo $(which spectre) autopwn --targets all
 
 Press Ctrl+C once to skip a target, twice to abort the campaign.
 
+<p align="center">
+  <img src="screenshots/SPECTRE - Capture.png" alt="Successful handshake capture" width="700"/>
+</p>
+
 ## AI Analysis (Optional)
 
 The `analyze` command sends survey data to a local LLM for automated vulnerability assessment. This is entirely optional — all other features work without it.
@@ -235,6 +257,10 @@ The LLM operates with a skeptical pentester mindset:
 - Platform awareness: ISP hotspots, enterprise networks, home routers handled differently
 
 After analysis, a **self-review pass** audits each finding against 7 checks: evidence gate, network identity, encryption accuracy, severity proportionality, confidence accuracy, platform awareness, and recommendation validity.
+
+<p align="center">
+  <img src="screenshots/SPECTRE - AI Analysis.png" alt="AI Analysis — evidence-gated findings with confidence levels" width="700"/>
+</p>
 
 ### AI-Driven Attacks
 

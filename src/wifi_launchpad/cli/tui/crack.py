@@ -207,6 +207,13 @@ def _location_menu():
         from wifi_launchpad.providers.external.hashcat_remote import check_remote
         info(f"Testing connection to {host}...")
         ok, msg = check_remote(host)
+        if not ok:
+            warn(f"Non-interactive SSH failed: {msg}")
+            info("Attempting interactive SSH (you may need to authenticate)...")
+            import os
+            ret = os.system(f"ssh -o ConnectTimeout=15 {host} echo 'SSH connection established'")
+            if ret == 0:
+                ok, msg = check_remote(host)
         if ok:
             _remote_mode = True
             _remote_host = host

@@ -178,7 +178,7 @@ class KismetSurveyProvider:
         """Wait for Kismet to start capturing, then wait for the survey duration."""
         # Use REST API to confirm Kismet is up and capturing
         client = KismetRestClient()
-        startup_ok = client.wait_for_ready(timeout=15)
+        startup_ok = client.wait_for_ready(timeout=30)
 
         if not startup_ok and process.poll() is not None:
             raise RuntimeError("Kismet exited before the survey window started")

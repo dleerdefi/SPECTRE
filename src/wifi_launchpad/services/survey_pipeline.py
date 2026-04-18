@@ -33,19 +33,25 @@ class SurveyPipeline:
         result = ScanResult()
 
         # Phase 1: Kismet (primary recon)
+        kismet_ok = False
         if self._has("kismet"):
             self.on_phase("Kismet survey", "starting")
             kismet_result = await self._run_kismet(duration)
-            if kismet_result:
+            if kismet_result and kismet_result.networks:
                 result.merge(kismet_result)
+                kismet_ok = True
                 self.on_phase("Kismet survey", f"done — {len(kismet_result.networks)} networks")
-        else:
-            # Fallback to airodump-ng as primary if no Kismet
-            self.on_phase("airodump-ng survey", "starting (Kismet not available)")
+            else:
+                self.on_phase("Kismet survey", "failed — falling back to airodump-ng")
+
+        if not kismet_ok:
+            # Full-duration airodump as primary scan
+            label = "airodump-ng survey" + (" (Kismet failed)" if self._has("kismet") else "")
+            self.on_phase(label, f"starting ({duration}s)")
             airo_result = await self._run_airodump(duration)
             if airo_result:
                 result.merge(airo_result)
-                self.on_phase("airodump-ng survey", f"done — {len(airo_result.networks)} networks")
+                self.on_phase(label, f"done — {len(airo_result.networks)} networks")
 
         # Phase 2: wash (WPS detection)
         if self._has("wash"):
@@ -55,8 +61,8 @@ class SurveyPipeline:
             merged = merge_wps_into_networks(result.networks, wps_results)
             self.on_phase("wash WPS scan", f"done — {merged} WPS APs detected")
 
-        # Phase 3: airodump-ng client enrichment (if Kismet was primary)
-        if self._has("kismet") and self._has("airodump-ng"):
+        # Phase 3: airodump-ng client enrichment (only if Kismet was primary)
+        if kismet_ok and self._has("airodump-ng"):
             self.on_phase("airodump-ng client pass", "starting (30s)")
             airo_result = await self._run_airodump(30)
             if airo_result:
@@ -80,7 +86,11 @@ class SurveyPipeline:
         try:
             from wifi_launchpad.providers.external.kismet import KismetSurveyProvider
             provider = KismetSurveyProvider(interface=self.interface)
-            return await provider.run_survey(duration=duration)
+            # run_survey is synchronous — run in thread to avoid blocking the event loop
+            result, _artifacts = await asyncio.to_thread(
+                provider.run_survey, duration=duration,
+            )
+            return result
         except Exception as exc:
             logger.debug("Kismet survey failed: %s", exc)
             return None
