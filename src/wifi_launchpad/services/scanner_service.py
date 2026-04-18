@@ -41,9 +41,12 @@ class ScannerService:
         self.on_handshake_ready: Optional[Callable[[Network], None]] = None
         self.on_new_network: Optional[Callable[[Network], None]] = None
 
-    async def initialize(self) -> bool:
-        """Discover adapters and initialize the low-level scanner."""
+    async def initialize(self, provider: str = "auto") -> bool:
+        """Discover adapters and initialize the scanner.
 
+        Args:
+            provider: "auto" (Kismet if available, else native), "kismet", or "native".
+        """
         try:
             adapters = self.adapter_manager.discover_adapters()
             if not adapters:
@@ -58,10 +61,13 @@ class ScannerService:
                 logger.error("Failed to enable monitor mode on %s", monitor_adapter.interface)
                 return False
 
+            self._interface = monitor_adapter.interface
+            self._provider = provider
+
             self.scanner = NetworkScanner(monitor_adapter.interface)
             self.scanner.on_network_found = self._handle_network_found
             self.scanner.on_client_found = self._handle_client_found
-            logger.info("Scanner service initialized with %s", monitor_adapter.interface)
+            logger.info("Scanner service initialized with %s (provider=%s)", monitor_adapter.interface, provider)
             return True
         except Exception as exc:  # pragma: no cover
             logger.error("Failed to initialize scanner service: %s", exc)
@@ -110,6 +116,26 @@ class ScannerService:
         self.scan_stats["total_clients"] = len(self.results.clients)
         logger.info("Scan stopped. Found %s networks", self.scan_stats["total_networks"])
         return self.results
+
+    async def run_pipeline(self, duration: int = 90, on_phase: Optional[Callable] = None) -> ScanResult:
+        """Run multi-tool survey pipeline (Kismet + wash + airodump + tshark).
+
+        Falls back to native-only if provider is set to "native".
+        """
+        iface = getattr(self, "_interface", None)
+        if not iface:
+            logger.error("Scanner not initialized — call initialize() first")
+            return ScanResult()
+        provider = getattr(self, "_provider", "auto")
+        if provider == "native":
+            # Use existing single-tool path
+            config = ScanConfig(mode=ScanMode.DISCOVERY, duration=duration)
+            await self.start_scan(config)
+            await asyncio.sleep(duration)
+            return await self.stop_scan()
+        from wifi_launchpad.services.survey_pipeline import SurveyPipeline
+        pipeline = SurveyPipeline(interface=iface, on_phase=on_phase)
+        return await pipeline.run(duration=duration)
 
     def get_statistics(self) -> Dict[str, Any]:
         """Return current scan statistics."""

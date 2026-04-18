@@ -1,0 +1,18 @@
+services:
+  spectre-db:
+    image: timescale/timescaledb-ha:pg16
+    container_name: spectre-db
+    environment:
+      POSTGRES_USER: ${DB_USER:-spectre}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+      POSTGRES_DB: ${DB_NAME:-spectre_db}
+      TIMESCALEDB_TELEMETRY: "off"
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - spectre-data:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    restart: unless-stopped
+
+volumes:
+  spectre-data:

@@ -37,6 +37,7 @@ class HashcatProvider:
         rules: Optional[str] = None,
         attack_mode: int = 0,
         timeout: Optional[int] = None,
+        extra_flags: Optional[List[str]] = None,
     ) -> CrackResult:
         """Run hashcat against a hash file with the given wordlists.
 
@@ -77,6 +78,9 @@ class HashcatProvider:
 
         if rules and Path(rules).exists():
             cmd.extend(["-r", rules])
+
+        if extra_flags:
+            cmd.extend(extra_flags)
 
         logger.info("Running hashcat: %s", " ".join(cmd))
         started = time.time()

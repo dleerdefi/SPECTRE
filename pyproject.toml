@@ -23,6 +23,12 @@ dev = [
   "pytest==8.3.5",
   "ruff==0.1.8",
 ]
+db = ["psycopg[binary]>=3.1"]
+search = ["duckduckgo-search>=8.0"]
+all = [
+  "psycopg[binary]>=3.1",
+  "duckduckgo-search>=8.0",
+]
 
 [project.scripts]
 spectre = "wifi_launchpad.cli.main:main"

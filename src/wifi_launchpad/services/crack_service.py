@@ -32,16 +32,43 @@ class CrackService:
         wordlists: Optional[List[str]] = None,
         rules: Optional[str] = None,
         timeout: Optional[int] = None,
+        extra_flags: Optional[List[str]] = None,
+        remote: Optional[bool] = None,
     ) -> CrackResult:
-        """Crack a .22000 hash file directly."""
+        """Crack a .22000 hash file locally or on a remote GPU host.
+
+        When *remote* is True (or None with ``CRACK_HOST`` set), the hash
+        file and wordlists are SCP'd to the remote machine and hashcat
+        runs there via SSH.
+        """
         if wordlists is None:
             wordlists = self._build_wordlist_chain()
+
+        use_remote = remote if remote is not None else bool(self.settings.crack.remote_host)
+
+        if use_remote:
+            host = self.settings.crack.remote_host
+            if not host:
+                logger.error("Remote cracking requested but CRACK_HOST not set")
+                return CrackResult(cracked=False, hash_file=hash_file)
+            from wifi_launchpad.providers.external.hashcat_remote import remote_crack
+            return remote_crack(
+                hash_file=hash_file,
+                wordlists=wordlists,
+                host=host,
+                hashcat_bin=self.settings.crack.remote_hashcat,
+                remote_dir=self.settings.crack.remote_temp_dir,
+                rules=rules,
+                timeout=timeout,
+                extra_flags=extra_flags,
+            )
 
         return self.hashcat.crack(
             hash_file=hash_file,
             wordlists=wordlists,
             rules=rules,
             timeout=timeout,
+            extra_flags=extra_flags,
         )
 
     def crack_handshake(

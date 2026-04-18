@@ -4,9 +4,8 @@ This is an optional service — SPECTRE operates fully without it.
 When no LLM backend is reachable, ``check_health()`` returns *False* and
 callers should gracefully disable AI features.
 
-Agentic analysis pattern adapted from METATRON
-(https://github.com/sooryathejas/METATRON)
-Copyright (c) 2026 sooryathejas — MIT License.
+Inspired by METATRON's agentic analysis approach
+(https://github.com/sooryathejas/METATRON).
 """
 
 from __future__ import annotations

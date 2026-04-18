@@ -1,23 +1,45 @@
-"""PostgreSQL persistence — best-effort writes for scan/attack data."""
+"""PostgreSQL persistence — best-effort writes for scan/attack data.
+
+Schema is TimescaleDB with hypertables on time-series tables (networks, clients,
+security_events, attack_logs) and regular tables for relational data (analysis_*,
+learned_rules). All time-series inserts are append-only — the time column IS the
+observation timestamp. MAC addresses are hashed for privacy via schema helper.
+"""
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from datetime import datetime
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from wifi_launchpad.app.settings import get_settings
 from wifi_launchpad.domain.capture import AttackTargetResult, Handshake
 from wifi_launchpad.domain.survey import Client, Network, ScanResult
+from wifi_launchpad.services.db_analysis import AnalysisMixin
+from wifi_launchpad.services.db_rules import LearnedRulesMixin
 
 logger = logging.getLogger(__name__)
 
 
-class DatabaseService:
+def _hash_mac(mac: Optional[str]) -> Optional[str]:
+    """Hash a MAC address via SHA-256 for privacy-preserving storage.
+
+    Mirrors the schema's hash_mac() SQL function so Python and SQL produce the
+    same hash for joining/lookups.
+    """
+    if not mac:
+        return None
+    return hashlib.sha256(mac.encode("utf-8")).hexdigest()
+
+
+class DatabaseService(AnalysisMixin, LearnedRulesMixin):
     """Best-effort PostgreSQL writes. Never crashes the caller on DB failure."""
 
     def __init__(self) -> None:
         self._conn = None
+        self._node = get_settings().db.collector_node
 
     def connect(self) -> bool:
         cfg = get_settings().db
@@ -58,48 +80,50 @@ class DatabaseService:
     def connected(self) -> bool:
         return self._conn is not None and not self._conn.closed
 
-    # ── Network upserts ──────────────────────────────────────────────────
+    # ── Networks (time-series hypertable) ────────────────────────────────
 
     def save_networks(self, networks: List[Network]) -> int:
-        """Upsert networks by BSSID. Returns count saved."""
+        """Append network observations to the time-series hypertable."""
         if not self.connected:
             return 0
 
         saved = 0
+        now = datetime.now()
         for net in networks:
             try:
                 enc = net.encryption.value if hasattr(net.encryption, "value") else str(net.encryption)
+                # Preserve non-schema fields in raw_data JSONB
+                extras = {"hidden": getattr(net, "hidden", None)}
+                raw_data = json.dumps({k: v for k, v in extras.items() if v is not None})
+
                 self._conn.execute(
                     """
                     INSERT INTO networks (
-                        bssid, ssid, channel, encryption, cipher,
-                        authentication, signal_strength, beacons,
-                        data_packets, wps_enabled, wps_locked,
-                        manufacturer, first_seen, last_seen,
-                        hidden
+                        time, bssid, ssid, channel, frequency, signal_strength,
+                        encryption, cipher, authentication, manufacturer,
+                        beacon_rate, data_rate, wps_enabled, wps_locked,
+                        wps_version, source_tool, collector_node, raw_data
                     ) VALUES (
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s, %s, %s
+                        %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s,
+                        %s, %s, %s, %s,
+                        %s, %s, %s, %s::jsonb
                     )
-                    ON CONFLICT (bssid) DO UPDATE SET
-                        ssid = COALESCE(NULLIF(EXCLUDED.ssid, ''), networks.ssid),
-                        channel = EXCLUDED.channel,
-                        signal_strength = EXCLUDED.signal_strength,
-                        beacons = networks.beacons + EXCLUDED.beacons,
-                        data_packets = networks.data_packets + EXCLUDED.data_packets,
-                        last_seen = EXCLUDED.last_seen
                     """,
                     (
-                        net.bssid, net.ssid, net.channel, enc,
-                        net.cipher, net.authentication, net.signal_strength,
-                        net.beacon_rate, net.data_packets, net.wps_enabled,
-                        net.wps_locked, net.manufacturer,
-                        net.first_seen, net.last_seen, net.hidden,
+                        now, net.bssid, net.ssid, net.channel,
+                        getattr(net, "frequency", None), net.signal_strength,
+                        enc, net.cipher, net.authentication, net.manufacturer,
+                        net.beacon_rate, getattr(net, "data_packets", 0),
+                        getattr(net, "wps_enabled", False),
+                        getattr(net, "wps_locked", False),
+                        getattr(net, "wps_version", None),
+                        "native", self._node, raw_data,
                     ),
                 )
                 saved += 1
             except Exception as exc:
-                logger.debug("Network upsert failed for %s: %s", net.bssid, exc)
+                logger.debug("Network insert failed for %s: %s", net.bssid, exc)
 
         try:
             self._conn.commit()
@@ -107,41 +131,57 @@ class DatabaseService:
             pass
         return saved
 
-    # ── Client upserts ───────────────────────────────────────────────────
+    # ── Clients (time-series hypertable, MAC-hashed) ─────────────────────
 
     def save_clients(self, clients: List[Client]) -> int:
-        """Upsert clients by MAC. Returns count saved."""
+        """Append client observations with hashed MACs."""
         if not self.connected:
             return 0
 
         saved = 0
+        now = datetime.now()
         for client in clients:
             try:
+                mac_hash = _hash_mac(client.mac_address)
+                if not mac_hash:
+                    continue
+
+                # Preserve device_type and other metadata in JSONB
+                fingerprint = {
+                    "device_type": getattr(client, "device_type", None),
+                }
+                fingerprint_json = json.dumps(
+                    {k: v for k, v in fingerprint.items() if v is not None}
+                )
+                probes = getattr(client, "probed_ssids", None) or []
+
                 self._conn.execute(
                     """
                     INSERT INTO clients (
-                        mac_address, associated_bssid, manufacturer,
-                        device_type, signal_strength, packets_sent,
-                        probed_ssids, first_seen, last_seen
+                        time, mac_hash, mac_vendor, associated_bssid,
+                        signal_strength, packets_sent, packets_received,
+                        probe_requests, device_fingerprint, last_activity,
+                        collector_node
                     ) VALUES (
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s
+                        %s, %s, %s, %s,
+                        %s, %s, %s,
+                        %s, %s::jsonb, %s,
+                        %s
                     )
-                    ON CONFLICT (mac_address) DO UPDATE SET
-                        associated_bssid = COALESCE(EXCLUDED.associated_bssid, clients.associated_bssid),
-                        signal_strength = EXCLUDED.signal_strength,
-                        packets_sent = clients.packets_sent + EXCLUDED.packets_sent,
-                        last_seen = EXCLUDED.last_seen
                     """,
                     (
-                        client.mac_address, client.associated_bssid,
-                        client.manufacturer, client.device_type,
-                        client.signal_strength, client.packets_sent,
-                        client.probed_ssids, client.first_seen, client.last_seen,
+                        now, mac_hash, getattr(client, "manufacturer", None),
+                        client.associated_bssid,
+                        client.signal_strength,
+                        getattr(client, "packets_sent", 0),
+                        getattr(client, "packets_received", 0),
+                        probes, fingerprint_json, now,
+                        self._node,
                     ),
                 )
                 saved += 1
             except Exception as exc:
-                logger.debug("Client upsert failed for %s: %s", client.mac_address, exc)
+                logger.debug("Client insert failed for %s: %s", client.mac_address, exc)
 
         try:
             self._conn.commit()
@@ -149,7 +189,7 @@ class DatabaseService:
             pass
         return saved
 
-    # ── Handshake inserts ────────────────────────────────────────────────
+    # ── Handshakes (regular table, kept indefinitely) ────────────────────
 
     def save_handshake(self, handshake: Handshake) -> bool:
         """Insert a captured handshake."""
@@ -160,22 +200,22 @@ class DatabaseService:
             self._conn.execute(
                 """
                 INSERT INTO handshakes (
-                    network_id, client_mac, capture_time,
-                    eapol_packets, quality_score, pcap_file,
-                    file_size, handshake_type, is_complete,
-                    crack_status
+                    captured_at, bssid, ssid, client_mac_hash,
+                    capture_file, cracked, password, collector_node
                 ) VALUES (
-                    (SELECT id FROM networks WHERE bssid = %s LIMIT 1),
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    %s, %s, %s, %s,
+                    %s, %s, %s, %s
                 )
                 """,
                 (
-                    handshake.bssid, handshake.client_mac,
-                    handshake.capture_time, handshake.eapol_packets,
-                    handshake.quality_score, handshake.pcap_file,
-                    handshake.file_size, handshake.capture_method,
-                    handshake.is_complete,
-                    "cracked" if handshake.cracked else "pending",
+                    getattr(handshake, "capture_time", datetime.now()),
+                    handshake.bssid,
+                    getattr(handshake, "ssid", None),
+                    _hash_mac(getattr(handshake, "client_mac", None)),
+                    getattr(handshake, "pcap_file", None),
+                    bool(getattr(handshake, "cracked", False)),
+                    getattr(handshake, "password", None),
+                    self._node,
                 ),
             )
             self._conn.commit()
@@ -184,7 +224,7 @@ class DatabaseService:
             logger.debug("Handshake insert failed: %s", exc)
             return False
 
-    # ── Attack log inserts ───────────────────────────────────────────────
+    # ── Attack logs (time-series hypertable) ─────────────────────────────
 
     def save_attack_log(self, result: AttackTargetResult) -> bool:
         """Log an attack attempt."""
@@ -192,23 +232,35 @@ class DatabaseService:
             return False
 
         try:
+            password = None
+            if result.crack_result and result.crack_result.cracked:
+                password = result.crack_result.password
+
             self._conn.execute(
                 """
                 INSERT INTO attack_logs (
-                    bssid, ssid, techniques_tried, captured,
+                    time, bssid, ssid, techniques_tried, captured,
                     skipped, skip_reason, eapol_packets,
-                    total_time, password, attack_time
+                    total_time, password, attack_step, target_score,
+                    user_approved, collector_node
                 ) VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s,
+                    %s, %s, %s, %s,
+                    %s, %s
                 )
                 """,
                 (
+                    datetime.now(),
                     result.network_bssid, result.network_ssid,
                     result.techniques_tried, result.captured,
                     result.skipped, result.skip_reason,
                     result.eapol_packets_seen, result.total_time,
-                    result.crack_result.password if result.crack_result and result.crack_result.cracked else None,
-                    datetime.now(),
+                    password,
+                    getattr(result, "attack_step", None),
+                    getattr(result, "target_score", None),
+                    getattr(result, "user_approved", False),
+                    self._node,
                 ),
             )
             self._conn.commit()

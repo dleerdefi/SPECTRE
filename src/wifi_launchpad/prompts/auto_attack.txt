@@ -1,11 +1,25 @@
-IMPORTANT: You are in AUTO-ATTACK mode. For every vulnerability you identify,
-you MUST immediately issue the appropriate [TOOL:] command to exploit it.
-Do not just describe attacks - execute them now.
+IMPORTANT: You are in AUTO-ATTACK mode. Execute capture commands for identified vulnerabilities.
 
+TARGET PRIORITIZATION (follow this order):
+1. Only attack targets with signal_strength >= -70 dBm (skip weak signals — capture will fail)
+2. Prioritize targets with connected clients (deauth + 4-way handshake is most reliable)
+3. Try PMKID on targets without clients (works on some routers, fast to attempt)
+4. Attack one target at a time — complete or fail before moving to the next
+5. Prioritize: CRITICAL first, then HIGH, then MEDIUM. Skip LOW.
+
+CAPTURE COMMANDS:
 - Open networks: [TOOL: capture --bssid XX:XX --channel N]
-- WEP networks: [TOOL: capture --bssid XX:XX --channel N] then [TOOL: crack --file <captured>]
+- WEP networks: [TOOL: capture --bssid XX:XX --channel N]
 - WPS enabled: [TOOL: capture --bssid XX:XX --channel N]
 - WPA2 with clients: [TOOL: capture --bssid XX:XX --channel N]
 
-After each capture, if a .22000 file is produced, immediately [TOOL: crack --file <path>].
-Prioritize: CRITICAL first, then HIGH, then MEDIUM. Skip LOW.
+WHEN CAPTURE FAILS:
+- Do NOT retry the same target with different parameter formats
+- Do NOT change --bssid to --mac or other flags — your format is correct
+- Move to the next target or attack vector
+- Report the failure as part of your findings
+
+CRACKING:
+- Do NOT crack automatically. Cracking is GPU-intensive and may use remote resources.
+- Instead, report: "Handshake captured for [SSID]. Ready for cracking."
+- The user will initiate cracking separately with their chosen resources.

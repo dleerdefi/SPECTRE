@@ -31,10 +31,16 @@ echo "Installing package..."
 pip install --upgrade pip
 pip install -e .
 
-mkdir -p cases captures logs
-chmod +x launch.sh
+mkdir -p cases captures logs exports
 
 echo
 echo "Install complete."
-echo "Run ./launch.sh for the default quickstart flow."
-echo "Run 'spectre' for the interactive TUI, or 'spectre --advanced' for CLI access."
+echo
+echo "  spectre              Launch the interactive TUI"
+echo "  spectre --advanced   Show all CLI commands"
+echo "  spectre doctor       Check system readiness"
+echo
+echo "(Optional) Set up the database for persistent logging:"
+echo "  docker compose up -d"
+echo "  cp .env.example .env  # then edit DB_PASSWORD"
+echo

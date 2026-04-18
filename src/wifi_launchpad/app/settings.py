@@ -38,6 +38,7 @@ class DbConfig:
     user: str = ""
     password: str = ""
     connect_timeout: int = 5
+    collector_node: str = "local"  # identifies this host in multi-node deployments
 
 
 @dataclass(frozen=True)
@@ -72,6 +73,9 @@ class CrackDefaults:
 
     timeout: int = 600
     timeout_per_file: int = 300
+    remote_host: str = ""
+    remote_hashcat: str = "hashcat"
+    remote_temp_dir: str = "/tmp/spectre-crack"
 
 
 @dataclass(frozen=True)
@@ -91,8 +95,7 @@ class LLMConfig:
     Requires an OpenAI-compatible API server (e.g. LM Studio, Ollama, vLLM).
     Analysis features are disabled when no server is reachable.
 
-    Adapted from METATRON (https://github.com/sooryathejas/METATRON)
-    Copyright (c) 2026 sooryathejas — MIT License.
+    Inspired by METATRON (https://github.com/sooryathejas/METATRON).
     """
 
     url: str = "http://localhost:1234"
@@ -182,10 +185,11 @@ def get_settings() -> AppSettings:
         db=DbConfig(
             host=os.getenv("DB_HOST", "localhost"),
             port=_int(os.getenv("DB_PORT", ""), 5432),
-            dbname=os.getenv("DB_NAME", "wifi_surveillance_db"),
-            user=os.getenv("DB_USER", "wifi_surveillance_user"),
+            dbname=os.getenv("DB_NAME", "spectre_db"),
+            user=os.getenv("DB_USER", "spectre"),
             password=os.getenv("DB_PASSWORD", ""),
             connect_timeout=_int(os.getenv("DB_CONNECT_TIMEOUT", ""), 5),
+            collector_node=os.getenv("COLLECTOR_NODE", "local"),
         ),
         capture=CaptureDefaults(
             timeout=_int(os.getenv("HANDSHAKE_TIMEOUT", ""), 300),
@@ -209,6 +213,9 @@ def get_settings() -> AppSettings:
         crack=CrackDefaults(
             timeout=_int(os.getenv("CRACK_TIMEOUT", ""), 600),
             timeout_per_file=_int(os.getenv("CRACK_TIMEOUT_PER_FILE", ""), 300),
+            remote_host=os.getenv("CRACK_HOST", ""),
+            remote_hashcat=os.getenv("CRACK_REMOTE_HASHCAT", "hashcat"),
+            remote_temp_dir=os.getenv("CRACK_REMOTE_TEMP_DIR", "/tmp/spectre-crack"),
         ),
         attack=AttackDefaults(
             pmkid_timeout=_int(os.getenv("PMKID_TIMEOUT", ""), 30),

@@ -4,9 +4,8 @@ This service is **optional** — SPECTRE operates fully without it.
 When the LLM backend is unavailable the ``analyze`` CLI command exits
 gracefully with a message.
 
-Agentic analysis pattern adapted from METATRON
-(https://github.com/sooryathejas/METATRON)
-Copyright (c) 2026 sooryathejas — MIT License.
+Inspired by METATRON's agentic analysis approach
+(https://github.com/sooryathejas/METATRON).
 """
 
 from __future__ import annotations
@@ -19,20 +18,22 @@ from typing import List, Optional
 from wifi_launchpad.app.settings import get_settings
 from wifi_launchpad.domain.analysis import (
     AnalysisResult,
+    parse_recommendations,
     parse_risk_level,
     parse_summary,
     parse_vulnerabilities,
 )
 from wifi_launchpad.domain.survey import ScanResult
 from wifi_launchpad.prompts import load_prompt
+from wifi_launchpad.services.analysis_tools import AttackToolsMixin
 from wifi_launchpad.services.llm_service import LLMService
 
 logger = logging.getLogger(__name__)
 
-_ALLOWED_TOOLS = {"survey", "capture", "crack", "nmap"}
+_ALLOWED_TOOLS = {"survey", "capture", "crack", "nmap", "pixie", "reaver", "bully", "validate"}
 
 
-class AnalysisService:
+class AnalysisService(AttackToolsMixin):
     """Orchestrates LLM analysis of WiFi survey data."""
 
     def __init__(self, llm: LLMService) -> None:
@@ -43,12 +44,15 @@ class AnalysisService:
         scan_results: ScanResult,
         max_rounds: Optional[int] = None,
         on_round: Optional[callable] = None,
+        on_approval: Optional[callable] = None,
         auto_attack: bool = False,
     ) -> AnalysisResult:
         """Run the agentic analysis loop over scan data."""
         settings = get_settings()
         max_rounds = max_rounds or settings.llm.max_rounds
         scan_text = self.format_scan_data(scan_results)
+
+        self._on_approval = on_approval  # callback for user approval of expensive ops
 
         system_prompt = load_prompt("analysis")
         if auto_attack:
@@ -85,6 +89,7 @@ class AnalysisService:
                 break
 
             tool_output = await self._dispatch_calls(calls)
+            print(f"\n  [*] Sending tool results to AI for Round {rounds + 1}...")
             messages.append({"role": "assistant", "content": response})
             messages.append({
                 "role": "user",
@@ -97,10 +102,13 @@ class AnalysisService:
 
         full_transcript = "\n\n".join(all_responses)
 
+        # Parse from full_transcript — handles truncated final rounds by
+        # finding the last RISK_LEVEL/SUMMARY across all rounds.
         return AnalysisResult(
             vulnerabilities=parse_vulnerabilities(full_transcript),
-            risk_level=parse_risk_level(final_response),
-            summary=parse_summary(final_response),
+            recommendations=parse_recommendations(full_transcript),
+            risk_level=parse_risk_level(full_transcript),
+            summary=parse_summary(full_transcript),
             full_response=final_response,
             full_transcript=full_transcript,
             scan_data=scan_text,
@@ -161,7 +169,8 @@ class AnalysisService:
 
     async def _dispatch_calls(self, calls: list) -> str:
         parts: list[str] = []
-        for call_type, command in calls:
+        for i, (call_type, command) in enumerate(calls, 1):
+            print(f"\n  [DISPATCH {i}/{len(calls)}] {call_type}: {command}")
             logger.info("[DISPATCH] %s: %s", call_type, command)
             if call_type == "TOOL":
                 output = await self._run_tool(command)
@@ -184,15 +193,18 @@ class AnalysisService:
         tool = parts[0].lower()
         if tool not in _ALLOWED_TOOLS:
             return f"[!] Tool not permitted: {tool}."
-        if tool == "survey":
-            return await self._tool_survey(parts[1:])
-        if tool == "capture":
-            return await self._tool_capture(parts[1:])
-        if tool == "crack":
-            return await self._tool_crack(parts[1:])
-        if tool == "nmap":
-            return await self._tool_subprocess(parts)
-        return f"[!] Unhandled tool: {tool}"
+        handlers = {
+            "survey": lambda: self._tool_survey(parts[1:]),
+            "capture": lambda: self._tool_capture(parts[1:]),
+            "crack": lambda: self._tool_crack(parts[1:]),
+            "nmap": lambda: self._tool_subprocess(parts),
+            "pixie": lambda: self._tool_pixie(parts[1:]),
+            "reaver": lambda: self._tool_reaver(parts[1:]),
+            "bully": lambda: self._tool_bully(parts[1:]),
+            "validate": lambda: self._tool_validate(parts[1:]),
+        }
+        handler = handlers.get(tool)
+        return await handler() if handler else f"[!] Unhandled tool: {tool}"
 
     async def _tool_survey(self, args: list) -> str:
         duration = int(args[0]) if args and args[0].isdigit() else 30
@@ -224,13 +236,17 @@ class AnalysisService:
             return "[!] capture requires --bssid."
         try:
             from wifi_launchpad.services.capture_service import CaptureService
+            print(f"    Attempting capture on {bssid} (this may take 30-60s)...")
             service = CaptureService()
             if not await service.initialize():
-                return "[!] Failed to initialize capture."
-            result = await service.quick_capture(bssid=bssid, channel=channel)
-            return f"[+] Handshake captured: {result}" if result else f"[-] No handshake for {bssid}."
+                return "[!] Capture failed: adapter not in monitor mode. Your syntax was correct — do NOT change formats. Try another target."
+            print(f"    Capture running — waiting for handshake...")
+            success, info = await service.targeted_capture(bssid=bssid)
+            if success and info:
+                return f"[+] Handshake captured: {info}"
+            return f"[-] No handshake for {bssid}. Target may be out of range or have no clients. Your syntax was correct — do NOT retry with different formats. Try another target."
         except Exception as exc:
-            return f"[!] Capture failed: {exc}"
+            return f"[!] Capture failed: {exc}. Your syntax was correct — do NOT change formats. Try another target."
 
     async def _tool_crack(self, args: list) -> str:
         hash_file, i = None, 0
@@ -240,11 +256,19 @@ class AnalysisService:
             else:
                 i += 1
         if not hash_file:
-            return "[!] crack requires --file."
+            return "[!] crack requires --file <path>."
+        from pathlib import Path
+        if not Path(hash_file).exists():
+            return f"[!] File not found: {hash_file}. No handshake captured — nothing to crack."
+        if self._on_approval:
+            if not self._on_approval(f"AI wants to crack {hash_file}. GPU-intensive. Approve?"):
+                return f"[-] User declined. Handshake saved: {hash_file}"
+        else:
+            return f"[-] Handshake ready: {hash_file}. Crack via: spectre crack --file {hash_file}"
         try:
             from wifi_launchpad.services.crack_service import CrackService
             result = CrackService().crack_hash(hash_file)
-            return f"[+] Password: {result.password}" if result.password else f"[-] Status: {result.status}"
+            return f"[+] Password: {result.password}" if result.password else f"[-] {result.status}"
         except Exception as exc:
             return f"[!] Crack failed: {exc}"
 

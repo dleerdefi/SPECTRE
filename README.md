@@ -225,7 +225,37 @@ spectre analyze --from-file scan.json --json-output
 
 The LLM identifies vulnerabilities (open networks, WEP, WPS, weak encryption), suggests attack vectors, and recommends fixes. In auto-attack mode (via TUI settings), it executes capture and crack commands directly.
 
-AI analysis pattern adapted from [METATRON](https://github.com/sooryathejas/METATRON) by Soorya Thejas (MIT License). See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+SPECTRE's AI analysis approach was inspired by [METATRON](https://github.com/sooryathejas/METATRON) by Soorya Thejas.
+
+## Database (Optional)
+
+SPECTRE uses PostgreSQL with TimescaleDB for persistent logging of scan results, attack logs, and handshakes. The database is **optional** — all core features (survey, capture, crack, analyze) work without it.
+
+### Quick setup
+
+```bash
+# Start the database (requires Docker)
+docker compose up -d
+
+# Copy and edit the env file
+cp .env.example .env
+# Edit .env and set DB_PASSWORD
+```
+
+### Remote database
+
+If your database runs on a different machine:
+
+```bash
+# In .env:
+DB_HOST=your-db-server
+DB_PORT=5432
+DB_USER=spectre
+DB_PASSWORD=your-password
+DB_NAME=spectre_db
+```
+
+The schema is applied automatically on first container startup via `db/init/001-schema.sql`.
 
 ## Configuration
 
@@ -240,7 +270,7 @@ All settings can be overridden via environment variables. Create a `.env` file i
 | `LLM_MAX_ROUNDS` | `9` | Max agentic tool-dispatch rounds |
 | `DB_HOST` | `localhost` | PostgreSQL host |
 | `DB_PORT` | `5432` | PostgreSQL port |
-| `DB_NAME` | `wifi_surveillance_db` | Database name |
+| `DB_NAME` | `spectre_db` | Database name |
 | `CAPTURE_DIR` | `captures/` | Handshake output directory |
 | `WORDLIST_DIR` | `wordlists/` | Wordlist search path |
 

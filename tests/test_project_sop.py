@@ -53,8 +53,7 @@ class TestProjectSOP(unittest.TestCase):
     def test_reference_docs_live_under_docs(self):
         required = [
             ROOT / ".env.example",
-            ROOT / "docs" / "reference" / "development-spec.md",
-            ROOT / "docs" / "reference" / "functionality-proof.md",
+            ROOT / "docs" / "kismet-bug-fix.md",
         ]
         missing = [str(path.relative_to(ROOT)) for path in required if not path.exists()]
         self.assertEqual(missing, [], "\n".join(missing))

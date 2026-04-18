@@ -183,6 +183,21 @@ class ScanResult:
             return
         self.clients.append(client)
 
+    def merge(self, other: "ScanResult") -> None:
+        """Merge another ScanResult into this one.
+
+        Deduplicates networks by BSSID and clients by MAC, keeping the
+        richer data from each source via add_network/add_client logic.
+        """
+        for net in other.networks:
+            self.add_network(net)
+        for client in other.clients:
+            self.add_client(client)
+        # Extend channel list
+        for ch in other.channels_scanned:
+            if ch not in self.channels_scanned:
+                self.channels_scanned.append(ch)
+
     def get_associated_clients(self, bssid: str) -> List[Client]:
         """Return clients associated with a specific BSSID."""
 

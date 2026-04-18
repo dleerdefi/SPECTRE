@@ -19,7 +19,13 @@ def register_autopwn_commands(cli):
     @click.option("--targets", "-t", help="Targets: number, range, or 'all' (e.g., '1,3,5' or '1-5')")
     @click.option("--crack/--no-crack", default=True, help="Auto-crack captured handshakes")
     @click.option("--interface", "-i", help="Monitor interface override")
-    def autopwn(scan_time, targets, crack, interface):
+    @click.option("--provider", type=click.Choice(["auto", "kismet", "native"]), default="native",
+                  help="Survey tool: auto (Kismet if available), kismet, or native (airodump-ng)")
+    @click.option("--min-signal", type=int, default=-70,
+                  help="Skip targets weaker than this dBm (default: -70, use -85 for more targets)")
+    @click.option("--attack-timeout", type=int, default=120,
+                  help="Per-target capture timeout in seconds (default: 120)")
+    def autopwn(scan_time, targets, crack, interface, provider, min_signal, attack_timeout):
         """Scan, analyze, and attack — fully automated chain.
 
         90-second survey detects networks + clients, analyzes attack vectors,
@@ -61,7 +67,10 @@ def register_autopwn_commands(cli):
         console.print(f"[green]Monitor: {monitor_iface} | Injection: {injection_iface}[/green]")
 
         # ── Phase 1: Survey ──────────────────────────────────────────
-        scan_results = _run_survey(manager, optimal, monitor_iface, injection_iface, scan_time)
+        if provider == "native":
+            scan_results = _run_survey(manager, optimal, monitor_iface, injection_iface, scan_time)
+        else:
+            scan_results = _run_pipeline(manager, optimal, injection_iface, scan_time, provider)
 
         if not scan_results or not scan_results.networks:
             console.print("[red]No networks found[/red]")
@@ -94,7 +103,11 @@ def register_autopwn_commands(cli):
         print_attack_vectors(recon)
 
         # ── Target selection ─────────────────────────────────────────
-        attack_targets = [intel.network for intel in recon.targets]
+        attack_targets = [intel.network for intel in recon.targets
+                          if intel.network.signal_strength >= min_signal]
+        if len(attack_targets) < len(recon.targets):
+            skipped = len(recon.targets) - len(attack_targets)
+            console.print(f"[dim]Filtered {skipped} target(s) below {min_signal} dBm threshold[/dim]")
         if targets:
             attack_targets = _parse_selection(targets, attack_targets)
             if not attack_targets:
@@ -176,6 +189,32 @@ def _run_survey(manager, optimal, monitor_iface, injection_iface, scan_time):
         return None
     time.sleep(scan_time)
     return scanner.stop_scan()
+
+
+def _run_pipeline(manager, optimal, injection_iface, scan_time, provider):
+    """Phase 1: Multi-tool survey pipeline (Kismet + wash + airodump + tshark)."""
+    import asyncio
+    from wifi_launchpad.services.survey_pipeline import SurveyPipeline
+
+    injection_adapter = optimal.get("injection")
+    if injection_adapter:
+        console.print(f"[cyan]Setting {injection_iface} to monitor mode...[/cyan]")
+        manager.enable_monitor_mode(injection_adapter)
+        time.sleep(1)
+
+    def on_phase(name, status):
+        console.print(f"  [cyan]{name}:[/cyan] {status}")
+
+    console.print(f"\n[bold cyan]Phase 1: Multi-tool pipeline on {injection_iface} ({scan_time}s)[/bold cyan]")
+    pipeline = SurveyPipeline(interface=injection_iface, on_phase=on_phase)
+
+    try:
+        return asyncio.get_event_loop().run_until_complete(pipeline.run(duration=scan_time))
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        result = loop.run_until_complete(pipeline.run(duration=scan_time))
+        loop.close()
+        return result
 
 
 def _parse_selection(selection: str, candidates: list) -> list:

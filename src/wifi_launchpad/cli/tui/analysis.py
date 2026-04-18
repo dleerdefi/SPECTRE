@@ -17,7 +17,9 @@ _settings = {
     "auto_attack": False,
     "max_rounds": None,
     "auto_export": False,
+    "provider": "auto",
     "last_result": None,
+    "last_analysis_id": None,
 }
 
 
@@ -108,6 +110,7 @@ def _run_live(llm):
             scan_results,
             max_rounds=_settings["max_rounds"],
             on_round=_on_round,
+            on_approval=_on_approval,
             auto_attack=_settings["auto_attack"],
         )
 
@@ -132,6 +135,7 @@ def _run_file(llm):
             scan_results,
             max_rounds=_settings["max_rounds"],
             on_round=_on_round,
+            on_approval=_on_approval,
             auto_attack=_settings["auto_attack"],
         )
 
@@ -148,9 +152,31 @@ def _finish(runner, coro_factory):
     if result:
         _settings["last_result"] = result
         _display_result(result)
+        # Persist to DB (best-effort)
+        try:
+            from wifi_launchpad.services.db import DatabaseService
+            db = DatabaseService()
+            if db.connect():
+                aid = db.save_analysis(result)
+                if aid:
+                    success(f"Analysis #{aid} saved to DB")
+                    _settings["last_analysis_id"] = aid
+                db.disconnect()
+        except Exception:
+            pass  # DB is optional — never crash the TUI
         if _settings["auto_export"]:
             export_result(result, _settings)
     pause()
+
+
+def _on_approval(message: str) -> bool:
+    """Prompt user for approval of expensive operations (e.g., cracking)."""
+    console.print(f"\n[bold yellow]{'─' * 60}[/bold yellow]")
+    console.print(f"[bold yellow]  APPROVAL REQUIRED[/bold yellow]")
+    console.print(f"  {message}")
+    console.print(f"[bold yellow]{'─' * 60}[/bold yellow]")
+    response = prompt("Approve? (y/n) [n]")
+    return response.lower().startswith("y")
 
 
 def _on_round(round_num: int, response: str):
@@ -168,16 +194,28 @@ def _display_result(result):
     if result.vulnerabilities:
         table = Table(title="WiFi Vulnerabilities", show_lines=True)
         table.add_column("Severity", width=10)
+        table.add_column("Confidence", width=12)
         table.add_column("SSID", width=18)
         table.add_column("BSSID", width=18)
         table.add_column("Vulnerability", width=25)
-        table.add_column("Attack", width=30)
+        table.add_column("Attack", width=25)
 
-        colors = {"critical": "red", "high": "yellow", "medium": "cyan", "low": "green"}
+        sev_colors = {"critical": "red", "high": "yellow", "medium": "cyan", "low": "green"}
+        conf_colors = {"confirmed": "red", "likely": "yellow", "possible": "dim"}
         for v in result.vulnerabilities:
-            c = colors.get(v.severity, "white")
-            table.add_row(f"[{c}]{v.severity.upper()}[/{c}]", v.ssid, v.bssid, v.name, v.attack)
+            sc = sev_colors.get(v.severity, "white")
+            cc = conf_colors.get(v.confidence, "white")
+            table.add_row(
+                f"[{sc}]{v.severity.upper()}[/{sc}]",
+                f"[{cc}]{v.confidence}[/{cc}]",
+                v.ssid, v.bssid, v.name, v.attack,
+            )
         console.print(table)
+
+    if result.recommendations:
+        console.print(f"\n  [bold]Recommendations:[/bold]")
+        for r in result.recommendations:
+            console.print(f"    [cyan]REC:[/cyan] {r.name} — {r.description}")
 
     risk_colors = {"CRITICAL": "red", "HIGH": "yellow", "MEDIUM": "cyan", "LOW": "green"}
     rc = risk_colors.get(result.risk_level, "white")
@@ -192,11 +230,13 @@ def _settings_menu():
         aa = "[green]ON[/green]" if _settings["auto_attack"] else "[red]OFF[/red]"
         ae = "[green]ON[/green]" if _settings["auto_export"] else "[red]OFF[/red]"
         mr = _settings["max_rounds"] or "default (9)"
+        prov = _settings["provider"]
         console.print(
             f"  [green][1][/green] Toggle auto-attack mode  ({aa})\n"
             f"  [green][2][/green] Set max rounds  ({mr})\n"
             f"  [green][3][/green] Toggle auto-export  ({ae})\n"
-            f"  [green][4][/green] Back\n"
+            f"  [green][4][/green] Survey provider  ({prov})\n"
+            f"  [green][5][/green] Back\n"
         )
         choice = prompt("spectre/analyze/settings")
         if choice == "1":
@@ -211,6 +251,11 @@ def _settings_menu():
         elif choice == "3":
             _settings["auto_export"] = not _settings["auto_export"]
         elif choice == "4":
+            val = prompt("Provider (auto/kismet/native) [auto]")
+            if val in ("auto", "kismet", "native"):
+                _settings["provider"] = val
+                success(f"Provider: {val}")
+        elif choice == "5":
             return
 
 
@@ -222,76 +267,5 @@ def _export_last():
     export_result(result, _settings)
 
 
-def export_result(result, settings_dict):
-    """Export analysis result to markdown for external review."""
-    from wifi_launchpad.app.settings import get_settings
-
-    app_settings = get_settings()
-    export_dir = app_settings.project_root / "exports"
-    export_dir.mkdir(parents=True, exist_ok=True)
-
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = export_dir / f"spectre_analysis_{ts}.md"
-
-    lines = [
-        "# SPECTRE Analysis Export", "",
-        "## Metadata",
-        f"- Rounds: {result.rounds}",
-        f"- Auto-attack: {'ON' if settings_dict.get('auto_attack') else 'OFF'}",
-        f"- Timestamp: {result.timestamp.isoformat()}", "",
-        "## Scan Data", "```", result.scan_data, "```", "",
-        "## AI Analysis (Full Response)", "```", result.full_transcript or result.full_response, "```", "",
-        "## Parsed Findings", "",
-    ]
-    for i, v in enumerate(result.vulnerabilities, 1):
-        lines.extend([
-            f"### VULN-{i}: {v.name}",
-            f"- Severity: {v.severity.upper()}", f"- BSSID: {v.bssid}",
-            f"- SSID: {v.ssid}", f"- Description: {v.description}",
-            f"- Attack: {v.attack}", f"- Fix: {v.fix}",
-            "- **CORRECTION**: ",
-            "- **CORRECTION_TYPE**: [false_positive | severity_change | missing_vuln | confirmed]",
-            "",
-        ])
-    lines.extend([
-        f"## Risk Level: {result.risk_level}",
-        f"## Summary: {result.summary}", "",
-        "## Reviewer Notes", "[leave blank for reviewer to fill in]", "",
-    ])
-    filename.write_text("\n".join(lines))
-    success(f"Exported to {filename}")
-
-
-def _import_corrections():
-    path = prompt("Path to reviewed .md file")
-    if not path or not Path(path).exists():
-        error(f"File not found: {path}")
-        return
-
-    text = Path(path).read_text()
-    corrections = []
-    current_vuln = None
-
-    for line in text.splitlines():
-        if line.startswith("### VULN-"):
-            current_vuln = line.replace("### ", "").strip()
-        elif line.startswith("- **CORRECTION**:") and current_vuln:
-            val = line.split(":", 1)[1].strip()
-            if val:
-                corrections.append({"vuln": current_vuln, "correction": val, "type": None})
-        elif line.startswith("- **CORRECTION_TYPE**:") and corrections:
-            val = line.split(":", 1)[1].strip()
-            for valid in ("false_positive", "severity_change", "missing_vuln", "confirmed"):
-                if valid in val:
-                    corrections[-1]["type"] = valid
-                    break
-
-    if not corrections:
-        warn("No corrections found in file.")
-        return
-
-    success(f"Found {len(corrections)} correction(s):")
-    for c in corrections:
-        console.print(f"  {c['vuln']}: [{c['type'] or 'untyped'}] {c['correction'][:60]}")
-    info("Corrections imported. (DB persistence coming soon)")
-    pause()
+from wifi_launchpad.cli.tui.analysis_export import export_result  # noqa: E402
+from wifi_launchpad.cli.tui.analysis_import import import_corrections as _import_corrections  # noqa: E402

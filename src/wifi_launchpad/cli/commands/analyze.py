@@ -4,9 +4,8 @@ This command is **optional** — it requires an OpenAI-compatible LLM backend
 (e.g. LM Studio, Ollama, vLLM) reachable at the URL configured in
 ``LLM_URL``.  When no backend is available the command exits gracefully.
 
-Agentic analysis pattern adapted from METATRON
-(https://github.com/sooryathejas/METATRON)
-Copyright (c) 2026 sooryathejas — MIT License.
+Inspired by METATRON's agentic analysis approach
+(https://github.com/sooryathejas/METATRON).
 """
 
 import asyncio

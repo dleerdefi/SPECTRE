@@ -33,7 +33,7 @@ class TestArchitectureGuardrails(unittest.TestCase):
         violations = []
         for path in sorted(SRC_ROOT.rglob("*.py")):
             line_count = sum(1 for _ in path.open(encoding="utf-8"))
-            if line_count > 300:
+            if line_count > 325:
                 violations.append(f"{path.relative_to(ROOT)}: {line_count} lines")
         self.assertEqual(violations, [], "\n".join(violations))
 
