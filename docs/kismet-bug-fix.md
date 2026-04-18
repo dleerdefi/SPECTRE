@@ -93,13 +93,15 @@ sudo kismet --silent --no-ncurses --no-plugins -c wlan0 &
 sleep 10 && sudo kill %1
 ```
 
-## Upstream Status
+## Upstream Status — RESOLVED
 
-Issue filed upstream: https://github.com/kismetwireless/kismet/issues/602
+- **Issue:** https://github.com/kismetwireless/kismet/issues/602
+- **PR:** Merged by tranzmatt — "plugins: make sure plugintracker exists (fix #602)"
+- **Fix:** Upstream adopted the null guard approach proposed in the issue
+- **Kali:** The fix will be included in the next Kali Kismet package update. Until then, build from source using the instructions above.
 
 ## Notes
 
 - The `--no-plugins` flag is intentional in SPECTRE — plugins add startup time and are not needed for passive survey
-- The Kali package cannot be patched without rebuilding; building from source is the only workaround
+- Once Kali updates their Kismet package to include the upstream fix, the build-from-source workaround is no longer needed — `apt install kismet` will work directly
 - The fix is safe — it simply skips plugin finalization when the tracker was never created
-- If/when Kismet merges the fix upstream, the Kali package can be used directly again
