@@ -76,7 +76,9 @@ def register_autopwn_commands(cli):
             console.print(f"[green]Monitor/Injection: {monitor_iface}[/green]")
 
         # ── Phase 1: Survey ──────────────────────────────────────────
-        if provider == "native":
+        if ap_adapter and provider == "native":
+            scan_results = _run_dual_survey(manager, optimal, ap_adapter, scan_time)
+        elif provider == "native":
             scan_results = _run_survey(manager, optimal, monitor_iface, injection_iface, scan_time)
         else:
             scan_results = _run_pipeline(manager, optimal, injection_iface, scan_time, provider)
@@ -200,6 +202,58 @@ def _run_survey(manager, optimal, monitor_iface, injection_iface, scan_time):
         return None
     time.sleep(scan_time)
     return scanner.stop_scan()
+
+
+def _run_dual_survey(manager, optimal, ap_adapter, scan_time):
+    """Phase 1: Parallel 2.4 GHz + 5 GHz survey on two adapters."""
+
+    from wifi_launchpad.providers.native.scanner import NetworkScanner
+
+    primary = optimal.get("injection")
+    if not primary:
+        return None
+
+    channels_24 = [1, 6, 11]
+    channels_5 = [36, 40, 44, 48, 149, 153, 157, 161]
+
+    console.print(f"[cyan]Setting {primary.interface} to monitor mode...[/cyan]")
+    manager.enable_monitor_mode(primary)
+    console.print(f"[cyan]Setting {ap_adapter.interface} to monitor mode...[/cyan]")
+    manager.enable_monitor_mode(ap_adapter)
+    time.sleep(1)
+
+    console.print(
+        f"\n[bold cyan]Phase 1: Dual-band parallel survey ({scan_time}s)[/bold cyan]"
+    )
+    console.print(
+        f"  [dim]{primary.interface} → 2.4 GHz (ch {','.join(str(c) for c in channels_24)})[/dim]"
+    )
+    console.print(
+        f"  [dim]{ap_adapter.interface} → 5 GHz (ch {','.join(str(c) for c in channels_5)})[/dim]"
+    )
+
+    scanner_24 = NetworkScanner(primary.interface)
+    scanner_5 = NetworkScanner(ap_adapter.interface)
+
+    if not scanner_24.start_scan(channels=channels_24, write_interval=2):
+        console.print("[red]Failed to start 2.4 GHz scanner[/red]")
+        return None
+    if not scanner_5.start_scan(channels=channels_5, write_interval=2):
+        console.print("[yellow]Failed to start 5 GHz scanner, falling back to single-band[/yellow]")
+        time.sleep(scan_time)
+        return scanner_24.stop_scan()
+
+    time.sleep(scan_time)
+
+    results_24 = scanner_24.stop_scan()
+    results_5 = scanner_5.stop_scan()
+
+    results_24.merge(results_5)
+    console.print(
+        f"  [green]Merged: {len(results_24.networks)} networks, "
+        f"{len(results_24.clients)} clients[/green]"
+    )
+    return results_24
 
 
 def _run_pipeline(manager, optimal, injection_iface, scan_time, provider):

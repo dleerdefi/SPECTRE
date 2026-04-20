@@ -137,5 +137,72 @@ class TestSplitCaptureWiring(unittest.TestCase):
         self.assertEqual(service.injection_interface, "wlan0")
 
 
+class TestScanResultMerge(unittest.TestCase):
+    """ScanResult.merge() deduplicates correctly for dual-band survey."""
+
+    def test_merge_unique_networks(self):
+        """Networks on different bands merge without loss."""
+        from wifi_launchpad.domain.survey import Network, ScanResult, EncryptionType
+
+        r1 = ScanResult(channels_scanned=[1, 6, 11])
+        r1.add_network(Network(bssid="AA:BB:CC:DD:EE:01", ssid="Net24", channel=6,
+                               frequency=2437, signal_strength=-50, encryption=EncryptionType.WPA2))
+
+        r2 = ScanResult(channels_scanned=[36, 40])
+        r2.add_network(Network(bssid="AA:BB:CC:DD:EE:02", ssid="Net5", channel=36,
+                               frequency=5180, signal_strength=-60, encryption=EncryptionType.WPA2))
+
+        r1.merge(r2)
+        self.assertEqual(len(r1.networks), 2)
+        self.assertEqual(r1.channels_scanned, [1, 6, 11, 36, 40])
+
+    def test_merge_duplicate_bssid_keeps_data(self):
+        """Same BSSID seen on both scanners — signal gets updated, not duplicated."""
+        from wifi_launchpad.domain.survey import Network, ScanResult, EncryptionType
+
+        r1 = ScanResult(channels_scanned=[1, 6, 11])
+        r1.add_network(Network(bssid="AA:BB:CC:DD:EE:01", ssid="Overlap", channel=6,
+                               frequency=2437, signal_strength=-70, encryption=EncryptionType.WPA2))
+
+        r2 = ScanResult(channels_scanned=[1, 6, 11])
+        r2.add_network(Network(bssid="AA:BB:CC:DD:EE:01", ssid="Overlap", channel=6,
+                               frequency=2437, signal_strength=-50, encryption=EncryptionType.WPA2))
+
+        r1.merge(r2)
+        self.assertEqual(len(r1.networks), 1)
+        # Signal should be updated (exponential smoothing moves toward -50)
+        self.assertGreater(r1.networks[0].signal_strength, -70)
+
+    def test_merge_clients_deduplicate_by_mac(self):
+        """Clients seen by both scanners are merged, not duplicated."""
+        from wifi_launchpad.domain.survey import Client, ScanResult
+
+        r1 = ScanResult()
+        r1.add_client(Client(mac_address="11:22:33:44:55:66", associated_bssid="AA:BB:CC:DD:EE:01",
+                             signal_strength=-60, packets_sent=100, probed_ssids=["Net1"]))
+
+        r2 = ScanResult()
+        r2.add_client(Client(mac_address="11:22:33:44:55:66", associated_bssid="AA:BB:CC:DD:EE:01",
+                             signal_strength=-55, packets_sent=200, probed_ssids=["Net1", "Net2"]))
+        r2.add_client(Client(mac_address="AA:BB:CC:DD:EE:FF", associated_bssid="AA:BB:CC:DD:EE:02",
+                             signal_strength=-65, packets_sent=50))
+
+        r1.merge(r2)
+        self.assertEqual(len(r1.clients), 2)
+        # First client should have merged probed SSIDs
+        merged = next(c for c in r1.clients if c.mac_address == "11:22:33:44:55:66")
+        self.assertIn("Net2", merged.probed_ssids)
+        self.assertEqual(merged.packets_sent, 200)
+
+    def test_merge_channels_no_duplicates(self):
+        """Channel lists merge without duplicates."""
+        from wifi_launchpad.domain.survey import ScanResult
+
+        r1 = ScanResult(channels_scanned=[1, 6, 11])
+        r2 = ScanResult(channels_scanned=[6, 11, 36, 40])
+        r1.merge(r2)
+        self.assertEqual(r1.channels_scanned, [1, 6, 11, 36, 40])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -29,7 +29,18 @@ def recon_menu():
 
 
 def run_survey(duration: int = 30, provider: str = "auto", channels=None):
-    """Run a passive WiFi survey."""
+    """Run a passive WiFi survey, using dual-band parallel scan when available."""
+
+    # Check for dual-adapter to enable parallel survey
+    from wifi_launchpad.providers.native.adapters.manager import AdapterManager
+    manager = AdapterManager()
+    manager.discover_adapters()
+    optimal = manager.get_optimal_setup()
+    ap_adapter = optimal.get("ap")
+
+    if ap_adapter and provider in ("auto", "native") and not channels:
+        return _run_dual_band_survey(manager, optimal, ap_adapter, duration)
+
     info(f"Starting {provider} survey for {duration}s...")
 
     from wifi_launchpad.services.scanner_service import ScannerService
@@ -69,6 +80,59 @@ def run_survey(duration: int = 30, provider: str = "auto", channels=None):
     display_scan_results(results)
     pause()
     return results
+
+
+def _run_dual_band_survey(manager, optimal, ap_adapter, duration):
+    """Run parallel 2.4 GHz + 5 GHz surveys, merge results."""
+    import time
+    from wifi_launchpad.providers.native.scanner import NetworkScanner
+
+    primary = optimal.get("injection")
+    if not primary:
+        warn("No primary adapter found, falling back to single-band.")
+        return run_survey(duration=duration)
+
+    channels_24 = [1, 6, 11]
+    channels_5 = [36, 40, 44, 48, 149, 153, 157, 161]
+
+    info(f"Dual-band parallel survey for {duration}s...")
+    console.print(
+        f"  [dim]{primary.interface} → 2.4 GHz | "
+        f"{ap_adapter.interface} → 5 GHz[/dim]"
+    )
+
+    manager.enable_monitor_mode(primary)
+    manager.enable_monitor_mode(ap_adapter)
+    time.sleep(1)
+
+    scanner_24 = NetworkScanner(primary.interface)
+    scanner_5 = NetworkScanner(ap_adapter.interface)
+
+    if not scanner_24.start_scan(channels=channels_24, write_interval=2):
+        error("Failed to start 2.4 GHz scanner.")
+        pause()
+        return None
+    if not scanner_5.start_scan(channels=channels_5, write_interval=2):
+        warn("Failed to start 5 GHz scanner, continuing single-band.")
+        time.sleep(duration)
+        results = scanner_24.stop_scan()
+        display_scan_results(results)
+        pause()
+        return results
+
+    for remaining in range(duration, 0, -1):
+        print(f"\r\033[36m[*] Dual-band scanning... {remaining}s remaining \033[0m", end="", flush=True)
+        time.sleep(1)
+    print()
+
+    results_24 = scanner_24.stop_scan()
+    results_5 = scanner_5.stop_scan()
+    results_24.merge(results_5)
+
+    info(f"Merged: {len(results_24.networks)} networks, {len(results_24.clients)} clients")
+    display_scan_results(results_24)
+    pause()
+    return results_24
 
 
 def _run_custom_survey():
