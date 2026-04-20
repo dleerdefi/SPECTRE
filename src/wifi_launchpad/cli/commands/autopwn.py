@@ -131,6 +131,17 @@ def register_autopwn_commands(cli):
         recon_lookup = {intel.network.bssid: intel for intel in recon.targets}
 
         # ── Phase 3: Attack ──────────────────────────────────────────
+        # Start background scanner on monitor adapter for live client discovery
+        bg_scanner = None
+        if ap_adapter:
+            from wifi_launchpad.providers.native.scanner import NetworkScanner as BGScanner
+            bg_scanner = BGScanner(monitor_iface)
+            if bg_scanner.start_scan(write_interval=5):
+                console.print(f"[dim]Background monitor active on {monitor_iface}[/dim]")
+            else:
+                console.print("[dim]Background monitor failed to start, using static client list[/dim]")
+                bg_scanner = None
+
         hcx = HCXCaptureProvider(injection_iface) if HCXCaptureProvider.is_available() else None
         chain = AttackChain(
             monitor_interface=monitor_iface,
@@ -139,6 +150,7 @@ def register_autopwn_commands(cli):
             auto_crack=crack,
             on_status=lambda msg: console.print(msg),
             recon_lookup=recon_lookup,
+            background_scanner=bg_scanner,
         )
 
         abort_count = [0]
@@ -163,6 +175,8 @@ def register_autopwn_commands(cli):
             results = []
         finally:
             signal.signal(signal.SIGINT, orig)
+            if bg_scanner and bg_scanner.is_scanning:
+                bg_scanner.stop_scan()
 
         if results:
             print_campaign_summary(results)
@@ -179,16 +193,10 @@ def register_autopwn_commands(cli):
 
 
 def _run_survey(manager, optimal, monitor_iface, injection_iface, scan_time):
-    """Phase 1: airodump-ng survey on the injection adapter (RTL8812AU).
-
-    The MT7921U (wlan2mon) cannot see associated client frames — only beacons
-    and probes. The RTL8812AU sees everything, so we use it for both survey
-    and attack phases sequentially (same approach as wifite2).
-    """
+    """Phase 1: airodump-ng survey on a single adapter."""
 
     from wifi_launchpad.providers.native.scanner import NetworkScanner
 
-    # Ensure wlan0 is in monitor mode (idempotent — manager handles already-monitor case)
     injection_adapter = optimal.get("injection")
     if injection_adapter:
         console.print(f"[cyan]Setting {injection_iface} to monitor mode...[/cyan]")

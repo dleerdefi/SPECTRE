@@ -11,7 +11,7 @@ from wifi_launchpad.app.settings import get_settings
 from wifi_launchpad.domain.capture import AttackTargetResult, Handshake
 from wifi_launchpad.domain.survey import Network, ScanResult
 from wifi_launchpad.providers.external.hcx import HCXCaptureProvider
-from wifi_launchpad.providers.native.capture.deauth import DeauthConfig, DeauthStrategy
+from wifi_launchpad.providers.native.capture.deauth import DeauthStrategy
 from wifi_launchpad.providers.native.capture.manager import CaptureConfig, CaptureManager
 from wifi_launchpad.services.crack_service import CrackService
 
@@ -39,6 +39,7 @@ class AttackChain:
         auto_crack: bool = False,
         on_status: Optional[Callable[[str], None]] = None,
         recon_lookup: Optional[dict] = None,
+        background_scanner=None,
     ):
         self.monitor_interface = monitor_interface
         self.injection_interface = injection_interface or monitor_interface
@@ -46,6 +47,7 @@ class AttackChain:
         self.auto_crack = auto_crack
         self.on_status = on_status or (lambda msg: None)
         self.recon_lookup = recon_lookup or {}
+        self.background_scanner = background_scanner
         self._skip_requested = False
 
     def request_skip(self):
@@ -125,6 +127,21 @@ class AttackChain:
                 self.on_status(f"      no PMKID")
 
             elif tech_id.startswith("deauth-"):
+                # Refresh client list from background scanner if available
+                if self.background_scanner:
+                    fresh = self.background_scanner.get_current_results()
+                    fresh_clients = fresh.get_associated_clients(network.bssid)
+                    if fresh_clients:
+                        fresh_macs = [c.mac_address for c in
+                                      sorted(fresh_clients, key=lambda c: c.packets_sent, reverse=True)]
+                        new_macs = [m for m in fresh_macs if m not in client_macs]
+                        if new_macs:
+                            client_macs = fresh_macs
+                            self.on_status(
+                                f"      [dim]Live scan: {len(client_macs)} client(s) "
+                                f"(+{len(new_macs)} new)[/dim]"
+                            )
+
                 strategy = {
                     "deauth-broadcast": DeauthStrategy.BROADCAST,
                     "deauth-targeted": DeauthStrategy.TARGETED,
@@ -175,25 +192,17 @@ class AttackChain:
 
         return result
 
-    # ── Multi-target campaign ───────────────────────────────────────────
-    def run_campaign(
-        self,
-        targets: List[Network],
-        scan_results: ScanResult,
-    ) -> List[AttackTargetResult]:
+    def run_campaign(self, targets: List[Network], scan_results: ScanResult) -> List[AttackTargetResult]:
         """Run attack_target() on each target sequentially."""
-
         results = []
         total = len(targets)
-
         for i, target in enumerate(targets, 1):
             n_clients = len(scan_results.get_associated_clients(target.bssid))
             client_info = f", {n_clients} clients" if n_clients else ""
-            header = (
+            self.on_status(
                 f"\n{'=' * 55}\n Target {i}/{total}: {target.ssid} "
                 f"(ch {target.channel}, {target.signal_strength} dBm{client_info})\n{'=' * 55}"
             )
-            self.on_status(header)
 
             self._cleanup_stale_processes()
             result = self.attack_target(target, scan_results)
@@ -218,11 +227,8 @@ class AttackChain:
 
     # ── Technique implementations ───────────────────────────────────────
 
-    def _try_pmkid(
-        self, network: Network, timeout: int
-    ) -> Tuple[bool, Optional[Handshake], Optional[str]]:
+    def _try_pmkid(self, network: Network, timeout: int) -> Tuple[bool, Optional[Handshake], Optional[str]]:
         """Attempt PMKID capture via hcxdumptool."""
-
         if not self.hcx_provider or not HCXCaptureProvider.is_available():
             return False, None, None
 
@@ -237,8 +243,7 @@ class AttackChain:
             logger.error("PMKID capture error: %s", exc)
             return False, None, None
 
-    def _try_deauth(self, network: Network, client_macs: List[str],
-                    strategy: DeauthStrategy, timeout: int) -> Tuple[bool, Optional[Handshake], int]:
+    def _try_deauth(self, network, client_macs, strategy, timeout):
         """Attempt deauth + handshake capture with native airodump/aireplay."""
         if strategy == DeauthStrategy.TARGETED and not client_macs:
             strategy = DeauthStrategy.BROADCAST
@@ -289,7 +294,6 @@ class AttackChain:
 
     def _try_crack(self, result: AttackTargetResult):
         """Attempt to crack a captured handshake."""
-
         try:
             service = CrackService()
             if result.hash_file:
@@ -311,10 +315,7 @@ class AttackChain:
                 pass
 
     @staticmethod
-    def _should_skip(
-        round_num: int, eapol_count: int, client_count: int,
-        pmkid_tried: bool, pmkid_success: bool,
-    ) -> Tuple[bool, str]:
+    def _should_skip(round_num, eapol_count, client_count, pmkid_tried, pmkid_success):
         """Decide whether to skip the current target."""
         total = len(_build_techniques())
         if round_num >= total:

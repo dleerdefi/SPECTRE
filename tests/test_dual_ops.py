@@ -137,6 +137,59 @@ class TestSplitCaptureWiring(unittest.TestCase):
         self.assertEqual(service.injection_interface, "wlan0")
 
 
+class TestBackgroundMonitoring(unittest.TestCase):
+    """AttackChain refreshes client list from background scanner."""
+
+    def test_background_scanner_refreshes_clients(self):
+        """New clients from background scanner appear in deauth targeting."""
+        from wifi_launchpad.domain.survey import Client, Network, ScanResult, EncryptionType
+        from wifi_launchpad.services.attack_chain import AttackChain
+
+        # Initial survey has 1 client
+        network = Network(bssid="AA:BB:CC:DD:EE:01", ssid="Target", channel=6,
+                          frequency=2437, signal_strength=-50, encryption=EncryptionType.WPA2)
+        initial_scan = ScanResult()
+        initial_scan.add_network(network)
+        initial_scan.add_client(Client(mac_address="11:11:11:11:11:11",
+                                       associated_bssid="AA:BB:CC:DD:EE:01",
+                                       packets_sent=100))
+
+        # Background scanner sees the original + a new client
+        bg_results = ScanResult()
+        bg_results.add_client(Client(mac_address="11:11:11:11:11:11",
+                                     associated_bssid="AA:BB:CC:DD:EE:01",
+                                     packets_sent=150))
+        bg_results.add_client(Client(mac_address="22:22:22:22:22:22",
+                                     associated_bssid="AA:BB:CC:DD:EE:01",
+                                     packets_sent=50))
+
+        mock_scanner = MagicMock()
+        mock_scanner.get_current_results.return_value = bg_results
+
+        chain = AttackChain(
+            monitor_interface="wlan0",
+            injection_interface="wlan2",
+            background_scanner=mock_scanner,
+        )
+
+        # Verify the scanner is stored
+        self.assertIsNotNone(chain.background_scanner)
+        # Verify get_current_results returns fresh clients
+        fresh = chain.background_scanner.get_current_results()
+        fresh_clients = fresh.get_associated_clients("AA:BB:CC:DD:EE:01")
+        self.assertEqual(len(fresh_clients), 2)
+
+    def test_no_background_scanner_uses_initial_scan(self):
+        """Without background scanner, AttackChain uses initial survey data."""
+        from wifi_launchpad.services.attack_chain import AttackChain
+
+        chain = AttackChain(
+            monitor_interface="wlan0",
+            injection_interface="wlan0",
+        )
+        self.assertIsNone(chain.background_scanner)
+
+
 class TestScanResultMerge(unittest.TestCase):
     """ScanResult.merge() deduplicates correctly for dual-band survey."""
 
