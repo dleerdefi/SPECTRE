@@ -86,6 +86,27 @@ class AttackDefaults:
     deauth_broadcast_timeout: int = 60
     deauth_targeted_timeout: int = 60
     deauth_aggressive_timeout: int = 90
+    evil_portal_timeout: int = 300
+
+
+@dataclass(frozen=True)
+class EvilPortalDefaults:
+    """Evil portal deployment defaults."""
+
+    enabled: bool = False  # opt-in for attack chain
+    timeout: int = 300
+    template: str = "wifi-default"
+    gateway_ip: str = "192.169.254.1"
+    dhcp_range_start: str = "192.169.254.50"
+    dhcp_range_end: str = "192.169.254.200"
+    subnet_mask: str = "255.255.255.0"
+    deauth_continuous: bool = True
+    deauth_burst_count: int = 100
+    deauth_burst_interval: float = 7.0
+    use_mana: bool = False
+    validate_psk: bool = True
+    whitelist_after_capture: bool = True
+    use_dhcp_option_114: bool = True
 
 
 @dataclass(frozen=True)
@@ -132,6 +153,7 @@ class AppSettings:
     scan: ScanDefaults = field(default_factory=ScanDefaults)
     crack: CrackDefaults = field(default_factory=CrackDefaults)
     attack: AttackDefaults = field(default_factory=AttackDefaults)
+    evil_portal: EvilPortalDefaults = field(default_factory=EvilPortalDefaults)
     llm: LLMConfig = field(default_factory=LLMConfig)
 
 
@@ -222,6 +244,15 @@ def get_settings() -> AppSettings:
             deauth_broadcast_timeout=_int(os.getenv("DEAUTH_BROADCAST_TIMEOUT", ""), 60),
             deauth_targeted_timeout=_int(os.getenv("DEAUTH_TARGETED_TIMEOUT", ""), 60),
             deauth_aggressive_timeout=_int(os.getenv("DEAUTH_AGGRESSIVE_TIMEOUT", ""), 90),
+            evil_portal_timeout=_int(os.getenv("EVIL_PORTAL_TIMEOUT", ""), 300),
+        ),
+        evil_portal=EvilPortalDefaults(
+            enabled=os.getenv("EVIL_PORTAL_ENABLED", "false").lower() == "true",
+            timeout=_int(os.getenv("EVIL_PORTAL_TIMEOUT", ""), 300),
+            template=os.getenv("EVIL_PORTAL_TEMPLATE", "wifi-default"),
+            gateway_ip=os.getenv("EVIL_PORTAL_GATEWAY", "192.169.254.1"),
+            use_mana=os.getenv("EVIL_PORTAL_MANA", "false").lower() == "true",
+            validate_psk=os.getenv("EVIL_PORTAL_VALIDATE_PSK", "true").lower() == "true",
         ),
         llm=LLMConfig(
             url=os.getenv("LLM_URL", "http://localhost:1234"),

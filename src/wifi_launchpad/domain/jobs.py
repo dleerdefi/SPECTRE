@@ -20,6 +20,7 @@ class JobType(Enum):
     CRACK = "crack"
     CASES = "cases"
     REPORT = "report"
+    EVIL_PORTAL = "evil_portal"
 
 
 class JobStatus(Enum):

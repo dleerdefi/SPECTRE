@@ -29,6 +29,7 @@ class ProviderRole(Enum):
     CRACK = "crack"
     ENTERPRISE = "enterprise"
     LAB = "lab"
+    SOCIAL_ENGINEERING = "social_engineering"
 
 
 @dataclass

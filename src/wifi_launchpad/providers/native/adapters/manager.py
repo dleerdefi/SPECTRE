@@ -37,6 +37,7 @@ class AdapterManager:
         self.monitor_adapter: Optional[WifiAdapter] = None
         self.injection_adapter: Optional[WifiAdapter] = None
         self.management_adapter: Optional[WifiAdapter] = None
+        self.ap_adapter: Optional[WifiAdapter] = None
 
     def discover_adapters(self) -> List[WifiAdapter]:
         """Discover and score all wireless adapters on the system."""
@@ -57,6 +58,7 @@ class AdapterManager:
         self.monitor_adapter = None
         self.injection_adapter = None
         self.management_adapter = None
+        self.ap_adapter = None
 
         for adapter in self.adapters:
             adapter.assigned_role = None
@@ -68,10 +70,14 @@ class AdapterManager:
                 continue
             role = config["role"]
             if role == "all":
-                adapter.assigned_role = "injection"
-                self.injection_adapter = adapter
-                if not self.monitor_adapter:
-                    self.monitor_adapter = adapter
+                if not self.injection_adapter:
+                    adapter.assigned_role = "injection"
+                    self.injection_adapter = adapter
+                    if not self.monitor_adapter:
+                        self.monitor_adapter = adapter
+                elif not self.ap_adapter:
+                    adapter.assigned_role = "ap"
+                    self.ap_adapter = adapter
             elif role == "monitor" and not self.monitor_adapter:
                 adapter.assigned_role = "monitor"
                 self.monitor_adapter = adapter
@@ -205,6 +211,16 @@ class AdapterManager:
         logger.warning("Injection test failed on %s", adapter.interface)
         return False
 
+    def enable_ap_mode(self, adapter: WifiAdapter) -> bool:
+        """Prepare an adapter for AP mode (hostapd manages the actual AP)."""
+
+        if adapter.current_mode == "monitor":
+            if not self.disable_monitor_mode(adapter):
+                return False
+        adapter.current_mode = "managed"
+        logger.info("Prepared %s for AP mode", adapter.interface)
+        return True
+
     def get_optimal_setup(self) -> Dict[str, Optional[WifiAdapter]]:
         """Return the assigned adapter roles."""
 
@@ -212,6 +228,7 @@ class AdapterManager:
             "monitor": self.monitor_adapter,
             "injection": self.injection_adapter,
             "management": self.management_adapter,
+            "ap": self.ap_adapter,
         }
 
     def summary(self) -> str:
@@ -230,9 +247,16 @@ class AdapterManager:
 
         if self.monitor_adapter and self.injection_adapter:
             lines.append("")
-            lines.append("Dual-adapter configuration ready")
-            lines.append(f"  Monitor: {self.monitor_adapter.interface}")
-            lines.append(f"  Injection: {self.injection_adapter.interface}")
+            if self.ap_adapter:
+                lines.append("Tri-adapter configuration ready")
+                lines.append(f"  Monitor/Injection: {self.injection_adapter.interface}")
+                lines.append(f"  AP: {self.ap_adapter.interface}")
+                if self.management_adapter:
+                    lines.append(f"  Management: {self.management_adapter.interface}")
+            else:
+                lines.append("Dual-adapter configuration ready")
+                lines.append(f"  Monitor: {self.monitor_adapter.interface}")
+                lines.append(f"  Injection: {self.injection_adapter.interface}")
 
         return "\n".join(lines)
 

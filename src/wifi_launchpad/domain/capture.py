@@ -116,6 +116,7 @@ class AttackTargetResult:
     total_time: float = 0.0
     eapol_packets_seen: int = 0
     crack_result: Optional[CrackResult] = None
+    evil_portal_result: Optional[Any] = None  # EvilPortalResult (avoid circular import)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -130,6 +131,7 @@ class AttackTargetResult:
             "total_time": self.total_time,
             "eapol_packets_seen": self.eapol_packets_seen,
             "crack_result": self.crack_result.to_dict() if self.crack_result else None,
+            "evil_portal_result": self.evil_portal_result.to_dict() if self.evil_portal_result else None,
         }
 
 

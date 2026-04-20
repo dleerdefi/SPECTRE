@@ -14,11 +14,12 @@ def run_tui():
             "  [green][1][/green]  Recon & Survey       [dim]— passive WiFi discovery[/dim]\n"
             "  [green][2][/green]  AI Analysis          [dim]— LLM-powered vuln assessment[/dim]\n"
             "  [green][3][/green]  Attack Campaign      [dim]— automated pwn chain[/dim]\n"
-            "  [green][4][/green]  Crack Hashes         [dim]— hashcat with HW profiles[/dim]\n"
-            "  [green][5][/green]  Browse History       [dim]— view current & past runs[/dim]\n"
-            "  [green][6][/green]  Cases & Reports      [dim]— manage evidence[/dim]\n"
-            "  [green][7][/green]  System Check         [dim]— doctor / adapters[/dim]\n"
-            "  [green][8][/green]  Exit\n"
+            "  [green][4][/green]  Evil Portal          [dim]— rogue AP social engineering[/dim]\n"
+            "  [green][5][/green]  Crack Hashes         [dim]— hashcat with HW profiles[/dim]\n"
+            "  [green][6][/green]  Browse History       [dim]— view current & past runs[/dim]\n"
+            "  [green][7][/green]  Cases & Reports      [dim]— manage evidence[/dim]\n"
+            "  [green][8][/green]  System Check         [dim]— doctor / adapters[/dim]\n"
+            "  [green][9][/green]  Exit\n"
         )
 
         choice = prompt("spectre")
@@ -33,18 +34,21 @@ def run_tui():
             from wifi_launchpad.cli.tui.attack import attack_menu
             attack_menu()
         elif choice == "4":
+            from wifi_launchpad.cli.tui.evil_portal import evil_portal_menu
+            evil_portal_menu()
+        elif choice == "5":
             from wifi_launchpad.cli.tui.crack import crack_menu
             crack_menu()
-        elif choice == "5":
+        elif choice == "6":
             from wifi_launchpad.cli.tui.history import history_menu
             history_menu()
-        elif choice == "6":
+        elif choice == "7":
             from wifi_launchpad.cli.tui.cases import case_menu
             case_menu()
-        elif choice == "7":
+        elif choice == "8":
             from wifi_launchpad.cli.tui.system import system_menu
             system_menu()
-        elif choice == "8":
+        elif choice == "9":
             console.print("\n[red]SPECTRE shutting down.[/red]\n")
             sys.exit(0)
         else:

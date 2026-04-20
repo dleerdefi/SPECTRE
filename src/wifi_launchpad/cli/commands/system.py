@@ -144,27 +144,42 @@ def register_system_commands(cli):
             console.print("\nPlease connect a WiFi adapter and try again.")
             sys.exit(1)
 
+        _ROLE_COLORS = {
+            "injection": "green",
+            "monitor": "blue",
+            "ap": "cyan",
+            "management": "yellow",
+        }
+
         table = Table(title="WiFi Adapters", show_header=True, header_style="bold cyan")
         table.add_column("Interface", style="green")
         table.add_column("Chipset", style="yellow")
         table.add_column("Driver")
         table.add_column("Mode")
         table.add_column("Bands")
-        table.add_column("Role", style="magenta")
+        table.add_column("Role")
 
         for adapter in found_adapters:
+            role = adapter.assigned_role or "None"
+            color = _ROLE_COLORS.get(role, "magenta")
             table.add_row(
                 adapter.interface,
                 adapter.chipset or "Unknown",
                 adapter.driver or "Unknown",
                 adapter.current_mode,
                 ", ".join(adapter.frequency_bands),
-                adapter.assigned_role or "None",
+                f"[{color}]{role}[/{color}]",
             )
 
         console.print(table)
         optimal = manager.get_optimal_setup()
-        if optimal["monitor"] and optimal["injection"]:
+        if optimal.get("ap") and optimal["monitor"] and optimal["injection"]:
+            console.print("\n[green]Tri-adapter configuration detected![/green]")
+            console.print(f"  Monitor/Injection: {optimal['injection'].interface} ({optimal['injection'].chipset})")
+            console.print(f"  AP: {optimal['ap'].interface} ({optimal['ap'].chipset})")
+            if optimal.get("management"):
+                console.print(f"  Management: {optimal['management'].interface} ({optimal['management'].chipset})")
+        elif optimal["monitor"] and optimal["injection"]:
             console.print("\n[green]Dual-adapter configuration detected![/green]")
             console.print(f"  Monitor: {optimal['monitor'].interface} ({optimal['monitor'].chipset})")
             console.print(f"  Injection: {optimal['injection'].interface} ({optimal['injection'].chipset})")

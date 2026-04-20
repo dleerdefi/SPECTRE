@@ -22,11 +22,24 @@ def attack_menu():
         sig = _settings["min_signal"]
         timeout = _settings["attack_timeout"]
         crack = "[green]ON[/green]" if _settings["crack"] else "[red]OFF[/red]"
+
+        # Check if AP adapter is available for evil portal
+        from wifi_launchpad.providers.native.adapters.manager import AdapterManager
+        _mgr = AdapterManager()
+        _mgr.discover_adapters()
+        _has_ap = _mgr.ap_adapter is not None
+
+        if _has_ap:
+            portal_line = "  [green][3][/green] Evil portal campaign\n"
+        else:
+            portal_line = "  [dim][3] Evil portal (requires 2nd adapter)[/dim]\n"
+
         console.print(
             f"\n  [green][1][/green] Full autopwn (survey → attack → crack)\n"
             f"  [green][2][/green] Quick capture (survey → capture only)\n"
-            f"  [green][3][/green] Settings\n"
-            f"  [green][4][/green] Back\n"
+            f"{portal_line}"
+            f"  [green][4][/green] Settings\n"
+            f"  [green][5][/green] Back\n"
             f"\n  [dim]Provider: {prov} | Signal: {sig} dBm | "
             f"Timeout: {timeout}s | Crack: {crack}[/dim]\n"
         )
@@ -37,8 +50,15 @@ def attack_menu():
         elif choice == "2":
             _run_quickcapture()
         elif choice == "3":
-            _attack_settings()
+            if _has_ap:
+                from wifi_launchpad.cli.tui.evil_portal import evil_portal_menu
+                evil_portal_menu()
+            else:
+                warn("Evil portal requires two wireless adapters.")
+                info("Add a second monitor-capable adapter to unlock this feature.")
         elif choice == "4":
+            _attack_settings()
+        elif choice == "5":
             return
         else:
             warn("Invalid choice.")
