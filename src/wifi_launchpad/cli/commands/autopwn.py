@@ -58,13 +58,22 @@ def register_autopwn_commands(cli):
         manager.discover_adapters()
         optimal = manager.get_optimal_setup()
         monitor_iface = interface or (optimal["monitor"].interface if optimal.get("monitor") else None)
-        injection_iface = optimal["injection"].interface if optimal.get("injection") else monitor_iface
+
+        # When a second adapter is available, use it for dedicated injection
+        ap_adapter = optimal.get("ap")
+        if ap_adapter:
+            injection_iface = ap_adapter.interface
+        else:
+            injection_iface = optimal["injection"].interface if optimal.get("injection") else monitor_iface
 
         if not monitor_iface:
             console.print("[red]No monitor-capable adapter found[/red]")
             sys.exit(1)
 
-        console.print(f"[green]Monitor: {monitor_iface} | Injection: {injection_iface}[/green]")
+        if ap_adapter:
+            console.print(f"[green]Split mode: Monitor={monitor_iface} | Injection={injection_iface}[/green]")
+        else:
+            console.print(f"[green]Monitor/Injection: {monitor_iface}[/green]")
 
         # ── Phase 1: Survey ──────────────────────────────────────────
         if provider == "native":
@@ -76,7 +85,9 @@ def register_autopwn_commands(cli):
             console.print("[red]No networks found[/red]")
             return
 
-        # Prepare injection adapter for Phase 3
+        # Prepare injection adapter(s) for Phase 3
+        if ap_adapter:
+            manager.enable_monitor_mode(ap_adapter)
         if optimal.get("injection") and optimal["injection"].current_mode != "monitor":
             manager.enable_monitor_mode(optimal["injection"])
 

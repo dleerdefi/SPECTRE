@@ -42,6 +42,7 @@ def attack_menu():
             f"  [green][5][/green] Back\n"
             f"\n  [dim]Provider: {prov} | Signal: {sig} dBm | "
             f"Timeout: {timeout}s | Crack: {crack}[/dim]\n"
+            f"  [dim]Adapters: {'Split mode (' + _mgr.injection_adapter.interface + ' monitor + ' + _mgr.ap_adapter.interface + ' injection)' if _has_ap else _mgr.injection_adapter.interface + ' (shared monitor/injection)' if _mgr.injection_adapter else 'none detected'}[/dim]\n"
         )
         choice = prompt("spectre/attack")
 

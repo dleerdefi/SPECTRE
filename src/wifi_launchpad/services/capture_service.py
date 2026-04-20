@@ -66,7 +66,16 @@ class CaptureService:
                 logger.error("Failed to enable monitor mode on %s", monitor_adapter.interface)
                 return False
 
-            injection_adapter = optimal.get("injection") or monitor_adapter
+            # When a second adapter is available, use it for dedicated injection
+            # so the monitor adapter can listen without interruption (split mode)
+            ap_adapter = optimal.get("ap")
+            if ap_adapter and ap_adapter.monitor_mode:
+                injection_adapter = ap_adapter
+                self.adapter_manager.enable_monitor_mode(ap_adapter)
+                logger.info("Split capture mode: monitor=%s, injection=%s",
+                            monitor_adapter.interface, ap_adapter.interface)
+            else:
+                injection_adapter = optimal.get("injection") or monitor_adapter
             self.monitor_interface = monitor_adapter.interface
             self.injection_interface = injection_adapter.interface
             self.scanner = NetworkScanner(self.monitor_interface)
