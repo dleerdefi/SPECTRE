@@ -4,11 +4,16 @@ These integrations wrap battle-tested third-party tools and keep the package
 focused on orchestration, evidence handling, and operator workflow glue.
 """
 
-__all__ = ["HCXCaptureProvider", "HashcatProvider", "KismetSurveyProvider"]
+__all__ = ["EvilPortalProvider", "HCXCaptureProvider", "HashcatProvider", "KismetSurveyProvider"]
 
 
 def __getattr__(name):
     """Lazily expose external provider integrations."""
+
+    if name == "EvilPortalProvider":
+        from .evil_portal import EvilPortalProvider
+
+        return EvilPortalProvider
 
     if name == "HCXCaptureProvider":
         from .hcx import HCXCaptureProvider

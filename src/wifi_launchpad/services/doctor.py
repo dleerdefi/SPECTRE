@@ -50,7 +50,9 @@ class PlatformService:
         ToolProbeSpec("tshark", "tshark", (("-v",), ("--version",)), "Wireshark CLI used for packet inspection and evidence validation."),
         ToolProbeSpec("hashcat", "hashcat", (("--version",), ("-V",))),
         ToolProbeSpec("eaphammer", "eaphammer", (("--help",),)),
+        ToolProbeSpec("hostapd", "hostapd", (("-v",), ("--help",))),
         ToolProbeSpec("hostapd-mana", "hostapd-mana", (("--help",),)),
+        ToolProbeSpec("dnsmasq", "dnsmasq", (("--version",), ("--help",))),
         ToolProbeSpec("berate_ap", "berate_ap", (("--help",),)),
         ToolProbeSpec("docker", "docker", (("--version",),)),
     )
@@ -64,6 +66,7 @@ class PlatformService:
         ProviderSpec("hcx-convert", ProviderRole.CONVERT, ("hcxpcapngtool",), "external-detected", "Preferred conversion path for pcapng to 22000 workflows."),
         ProviderSpec("wireshark-analysis", ProviderRole.ANALYSIS, ("tshark",), "analysis-validation", "Preferred packet inspection and evidence-validation toolchain."),
         ProviderSpec("hashcat", ProviderRole.CRACK, ("hashcat",), "external-detected", "Preferred cracking engine when locally installed."),
+        ProviderSpec("evil-portal", ProviderRole.SOCIAL_ENGINEERING, ("hostapd", "dnsmasq"), "external-detected", "Evil twin / captive portal attack infrastructure."),
         ProviderSpec("enterprise-suite", ProviderRole.ENTERPRISE, ("eaphammer", "hostapd-mana", "berate_ap"), "advanced-detected", "Advanced enterprise tooling detected but intentionally left as manual/external workflows."),
         ProviderSpec("wifi-challenge-lab", ProviderRole.LAB, ("docker",), "lab-ready", "Local container runtime suitable for replay and challenge lab scenarios."),
     )
